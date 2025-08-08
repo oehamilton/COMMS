@@ -115,6 +115,7 @@ class _MyHomePageState extends State<MyHomePage> {
   void initState() {
     super.initState();
     _loadPreferences(); // Load saved values on app start
+    _checkPhoneNumber();
   }
 
   // Load saved preferences
@@ -124,6 +125,15 @@ class _MyHomePageState extends State<MyHomePage> {
       _phoneNumber = _prefs.getString('phone_number');
       _messageRetentionDays = _prefs.getInt('message_retention_days');
     });
+  }
+
+  // Check and prompt for phone number on first run
+  void _checkPhoneNumber() {
+    if (_phoneNumber == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _showPhoneNumberDialog();
+      });
+    }
   }
 
 // Function to show phone number input dialog
