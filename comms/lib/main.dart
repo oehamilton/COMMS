@@ -334,8 +334,8 @@ class _MyHomePageState extends State<MyHomePage> {
                       });
                     },
                     selected: _selectedMessage == message,
-                    //selectedTileColor: Theme.of(context).colorScheme.primary.withOpacity(0.1),
-                    selectedTileColor: Theme.of(context).colorScheme.primary
+                    selectedTileColor: Theme.of(context).colorScheme.primary.withOpacity(0.1),
+                    //selectedTileColor: Theme.of(context).colorScheme.primary
                   );
                 },
               ),
