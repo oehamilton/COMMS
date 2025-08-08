@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart'; 
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sqflite/sqflite.dart';
+import 'package:path/path.dart' as path;
 
 void main() {
   runApp(const MyApp());
@@ -39,7 +41,7 @@ class Message {
 }
 
 // Enum for menu options
-enum MenuOption { showSettings, updatePhone, messageRetention }
+enum MenuOption { viewSettings, updatePhone, messageRetention }
 
 class MyHomePage extends StatefulWidget {
   const MyHomePage({super.key, required this.title});
@@ -114,17 +116,18 @@ class _MyHomePageState extends State<MyHomePage> {
   @override
   void initState() {
     super.initState();
-    _loadPreferences(); // Load saved values on app start
-    _checkPhoneNumber();
+      _loadPreferences(); // Load saved values on app start
+    //_checkPhoneNumber();
   }
 
   // Load saved preferences
-  Future<void> _loadPreferences() async {
+  Future<void> _loadPreferences() async{
     _prefs = await SharedPreferences.getInstance();
     setState(() {
       _phoneNumber = _prefs.getString('phone_number');
       _messageRetentionDays = _prefs.getInt('message_retention_days');
     });
+    _checkPhoneNumber();
   }
 
   // Check and prompt for phone number on first run
@@ -286,14 +289,14 @@ class _MyHomePageState extends State<MyHomePage> {
                   _showPhoneNumberDialog();
                 case MenuOption.messageRetention:
                   _showMessageRetentionDialog();
-                case MenuOption.showSettings:
+                case MenuOption.viewSettings:
                 _showSettingsDialog();
               }
             },
             itemBuilder: (context) => [
               const PopupMenuItem(
-                value: MenuOption.showSettings,
-                child: Text('Show Settings'),
+                value: MenuOption.viewSettings,
+                child: Text('View Settings'),
               ),const PopupMenuItem(
                 value: MenuOption.updatePhone,
                 child: Text('Update Phone Number'),
