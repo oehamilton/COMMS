@@ -38,6 +38,28 @@ class Message {
     required this.timestamp,
     this.isViewed = false,
   });
+
+// Convert Message to Map for database
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'title': title,
+      'content': content,
+      'timestamp': timestamp.toIso8601String(),
+      'isViewed': isViewed ? 1 : 0,
+    };
+  }
+
+  // Create Message from Map
+  static Message fromMap(Map<String, dynamic> map) {
+    return Message(
+      id: map['id'],
+      title: map['title'],
+      content: map['content'],
+      timestamp: DateTime.parse(map['timestamp']),
+      isViewed: map['isViewed'] == 1,
+    );
+  }
 }
 
 // Enum for menu options
@@ -53,53 +75,13 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
-  // Sample messages with DateTime (replace with AWS data, e.g., from DynamoDB)
-  final List<Message> _messages = [
-    Message(
-      id: '1',
-      title: 'Device 1: Maintenance Needed',
-      content: 'Endpoint device 1 requires urgent maintenance.',
-      timestamp: DateTime(2025, 8, 7, 21, 58), // Example timestamp
-      isViewed: false,
-    ),
-    Message(
-      id: '2',
-      title: 'Device 2: Low Battery',
-      content: 'Battery level critical on endpoint device 2.',
-      timestamp: DateTime(2025, 8, 7, 20, 30),
-      isViewed: true,
-    ),
-    Message(
-      id: '3',
-      title: 'Device 3: Connectivity Issue',
-      content: 'Device 3 lost connection at 10:30 AM.',
-      timestamp: DateTime(2025, 8, 7, 10, 30),
-      isViewed: false,
-    ),
-    Message(
-      id: '4',
-      title: 'Device 4: Maintenance Needed',
-      content: 'Endpoint device 1 requires urgent maintenance.',
-      timestamp: DateTime(2025, 8, 7, 21, 58), // Example timestamp
-      isViewed: false,
-    ),
-    Message(
-      id: '5',
-      title: 'Device 5: Low Battery',
-      content: 'Battery level critical on endpoint device 2.',
-      timestamp: DateTime(2025, 8, 7, 20, 30),
-      isViewed: true,
-    ),
-    Message(
-      id: '6',
-      title: 'Device 6: Connectivity Issue',
-      content: 'Device 3 lost connection at 10:30 AM.',
-      timestamp: DateTime(2025, 8, 7, 10, 30),
-      isViewed: false,
-    ),
-  ];
+  // Database instance
+  Database? _database;
 
-  // Track selected message
+  // Messages list (now loaded from database)
+  List<Message> _messages = [];
+
+    // Track selected message
   Message? _selectedMessage;
 
   // DateTime formatter
@@ -117,7 +99,7 @@ class _MyHomePageState extends State<MyHomePage> {
   void initState() {
     super.initState();
       _loadPreferences(); // Load saved values on app start
-    //_checkPhoneNumber();
+
   }
 
   // Load saved preferences
@@ -128,6 +110,7 @@ class _MyHomePageState extends State<MyHomePage> {
       _messageRetentionDays = _prefs.getInt('message_retention_days');
     });
     _checkPhoneNumber();
+    _initializeDatabase();
   }
 
   // Check and prompt for phone number on first run
@@ -137,6 +120,72 @@ class _MyHomePageState extends State<MyHomePage> {
         _showPhoneNumberDialog();
       });
     }
+  }
+
+
+// Initialize database and load messages
+  Future<void> _initializeDatabase() async {
+    _database = await openDatabase(
+      path.join(await getDatabasesPath(), 'comms_database.db'),
+      version: 1,
+      onCreate: (db, version) async {
+        await db.execute(
+          'CREATE TABLE messages (id TEXT PRIMARY KEY, title TEXT, content TEXT, timestamp TEXT, isViewed INTEGER)',
+        );
+        // Insert initial sample data
+        await db.insert('messages', Message(
+          id: '1',
+          title: 'Device 1: Maintenance Needed',
+          content: 'Endpoint device 1 requires urgent maintenance.',
+          timestamp: DateTime(2025, 8, 7, 21, 58),
+          isViewed: false,
+        ).toMap());
+        await db.insert('messages', Message(
+          id: '2',
+          title: 'Device 2: Low Battery',
+          content: 'Battery level critical on endpoint device 2.',
+          timestamp: DateTime(2025, 8, 7, 20, 30),
+          isViewed: true,
+        ).toMap());
+        await db.insert('messages', Message(
+          id: '3',
+          title: 'Device 3: Connectivity Issue',
+          content: 'Device 3 lost connection at 10:30 AM.',
+          timestamp: DateTime(2025, 8, 7, 10, 30),
+          isViewed: false,
+        ).toMap());
+        await db.insert('messages', Message(
+          id: '4',
+          title: 'Device 4: Maintenance Needed',
+          content: 'Endpoint device 1 requires urgent maintenance.',
+          timestamp: DateTime(2025, 8, 7, 21, 58),
+          isViewed: false,
+        ).toMap());
+        await db.insert('messages', Message(
+          id: '5',
+          title: 'Device 5: Low Battery',
+          content: 'Battery level critical on endpoint device 2.',
+          timestamp: DateTime(2025, 8, 7, 20, 30),
+          isViewed: true,
+        ).toMap());
+        await db.insert('messages', Message(
+          id: '6',
+          title: 'Device 6: Connectivity Issue',
+          content: 'Device 3 lost connection at 10:30 AM.',
+          timestamp: DateTime(2025, 8, 7, 10, 30),
+          isViewed: false,
+        ).toMap());
+      },
+    );
+    _loadMessages(); // Load messages into _messages list
+  }
+  
+// Load messages from database
+  Future<void> _loadMessages() async {
+    final List<Map<String, dynamic>> maps = await _database!.query('messages');
+    setState(() {
+      _messages = maps.map((map) => Message.fromMap(map)).toList();
+    });
   }
 
 // Function to show phone number input dialog
