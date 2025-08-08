@@ -179,7 +179,7 @@ class _MyHomePageState extends State<MyHomePage> {
     );
     _loadMessages(); // Load messages into _messages list
   }
-  
+
 // Load messages from database
   Future<void> _loadMessages() async {
     final List<Map<String, dynamic>> maps = await _database!.query('messages');
@@ -392,7 +392,13 @@ class _MyHomePageState extends State<MyHomePage> {
                     onTap: () {
                       setState(() {
                         _selectedMessage = message;
-                        message.isViewed = true; // Mark as viewed when selected
+                        message.isViewed = true; 
+                        _database!.update(
+                            'messages',
+                            message.toMap(),
+                            where: 'id = ?',
+                            whereArgs: [message.id],
+                          ); // Update in database// Mark as viewed when selected
                       });
                     },
                     selected: _selectedMessage == message,
