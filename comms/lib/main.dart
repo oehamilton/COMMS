@@ -25,14 +25,14 @@ class MyApp extends StatelessWidget {
 
 // Message model with DateTime
 class Message {
-  final String id;
+  final String sourceName;
   final String title;
   final String content;
   final DateTime timestamp; // New DateTime field
   bool isViewed;
 
   Message({
-    required this.id,
+    required this.sourceName,
     required this.title,
     required this.content,
     required this.timestamp,
@@ -42,7 +42,7 @@ class Message {
 // Convert Message to Map for database
   Map<String, dynamic> toMap() {
     return {
-      'id': id,
+      'sourceName': sourceName,
       'title': title,
       'content': content,
       'timestamp': timestamp.toIso8601String(),
@@ -53,7 +53,7 @@ class Message {
   // Create Message from Map
   static Message fromMap(Map<String, dynamic> map) {
     return Message(
-      id: map['id'],
+      sourceName: map['sourceName'],
       title: map['title'],
       content: map['content'],
       timestamp: DateTime.parse(map['timestamp']),
@@ -130,51 +130,52 @@ class _MyHomePageState extends State<MyHomePage> {
       version: 1,
       onCreate: (db, version) async {
         await db.execute(
-          'CREATE TABLE messages (id TEXT PRIMARY KEY, title TEXT, content TEXT, timestamp TEXT, isViewed INTEGER)',
+          'CREATE TABLE messages (id INTEGER PRIMARY KEY AUTOINCREMENT, sourceName TEXT, title TEXT, content TEXT, timestamp TEXT, isViewed INTEGER)',
         );
         // Insert initial sample data
-        await db.insert('messages', Message(
-          id: '1',
-          title: 'Device 1: Maintenance Needed',
-          content: 'Endpoint device 1 requires urgent maintenance.',
-          timestamp: DateTime(2025, 8, 7, 21, 58),
-          isViewed: false,
-        ).toMap());
-        await db.insert('messages', Message(
-          id: '2',
-          title: 'Device 2: Low Battery',
-          content: 'Battery level critical on endpoint device 2.',
-          timestamp: DateTime(2025, 8, 7, 20, 30),
-          isViewed: true,
-        ).toMap());
-        await db.insert('messages', Message(
-          id: '3',
-          title: 'Device 3: Connectivity Issue',
-          content: 'Device 3 lost connection at 10:30 AM.',
-          timestamp: DateTime(2025, 8, 7, 10, 30),
-          isViewed: false,
-        ).toMap());
-        await db.insert('messages', Message(
-          id: '4',
-          title: 'Device 4: Maintenance Needed',
-          content: 'Endpoint device 1 requires urgent maintenance.',
-          timestamp: DateTime(2025, 8, 7, 21, 58),
-          isViewed: false,
-        ).toMap());
-        await db.insert('messages', Message(
-          id: '5',
-          title: 'Device 5: Low Battery',
-          content: 'Battery level critical on endpoint device 2.',
-          timestamp: DateTime(2025, 8, 7, 20, 30),
-          isViewed: true,
-        ).toMap());
-        await db.insert('messages', Message(
-          id: '6',
-          title: 'Device 6: Connectivity Issue',
-          content: 'Device 3 lost connection at 10:30 AM.',
-          timestamp: DateTime(2025, 8, 7, 10, 30),
-          isViewed: false,
-        ).toMap());
+        // Insert initial sample data
+          await db.insert('messages', {
+            'sourceName': 'Device 1',
+            'title': 'Maintenance Needed',
+            'content': 'Endpoint device 1 requires urgent maintenance.',
+            'timestamp': DateTime(2025, 8, 7, 21, 58).toIso8601String(),
+            'isViewed': 0,
+          });
+          await db.insert('messages', {
+            'sourceName': 'Device 2',
+            'title': 'Low Battery',
+            'content': 'Battery level critical on endpoint device 2.',
+            'timestamp': DateTime(2025, 8, 7, 20, 30).toIso8601String(),
+            'isViewed': 1,
+          });
+          await db.insert('messages', {
+            'sourceName': 'Device 3',
+            'title': 'Connectivity Issue',
+            'content': 'Device 3 lost connection at 10:30 AM.',
+            'timestamp': DateTime(2025, 8, 7, 10, 30).toIso8601String(),
+            'isViewed': 0,
+          });
+          await db.insert('messages', {
+            'sourceName': 'Device 14',
+            'title': 'Maintenance Needed',
+            'content': 'Endpoint device 1 requires urgent maintenance.',
+            'timestamp': DateTime(2025, 8, 7, 21, 58).toIso8601String(),
+            'isViewed': 0,
+          });
+          await db.insert('messages', {
+            'sourceName': 'Device 3',
+            'title': 'Low Battery',
+            'content': 'Battery level critical on endpoint device 2.',
+            'timestamp': DateTime(2025, 8, 7, 20, 30).toIso8601String(),
+            'isViewed': 1,
+          });
+          await db.insert('messages', {
+            'sourceName': 'Device 1',
+            'title': 'Connectivity Issue',
+            'content': 'Lost connection at 10:30 AM.',
+            'timestamp': DateTime(2025, 8, 7, 10, 30).toIso8601String(),
+            'isViewed': 0,
+        });
       },
     );
     _loadMessages(); // Load messages into _messages list
@@ -324,6 +325,17 @@ class _MyHomePageState extends State<MyHomePage> {
     );
   }
 
+    // Helper method to get the database id for a message
+  Future<int> _getMessageId(Message message) async {
+      final List<Map<String, dynamic>> result = await _database!.query(
+        'messages',
+        columns: ['id'],
+        where: 'sourceName = ? AND timestamp = ?',
+        whereArgs: [message.sourceName, message.timestamp.toIso8601String()],
+      );
+      return result.isNotEmpty ? result.first['id'] as int : -1; // -1 if not found
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -386,20 +398,23 @@ class _MyHomePageState extends State<MyHomePage> {
                       ),
                     ),
                     subtitle: Text(
-                      _dateFormat.format(message.timestamp), // Formatted DateTime
-                      style: Theme.of(context).textTheme.bodySmall,
+                      '${message.sourceName} - ${_dateFormat.format(message.timestamp)}',
+                        style: Theme.of(context).textTheme.bodySmall,
                     ),
-                    onTap: () {
-                      setState(() {
-                        _selectedMessage = message;
-                        message.isViewed = true; 
-                        _database!.update(
-                            'messages',
-                            message.toMap(),
-                            where: 'id = ?',
-                            whereArgs: [message.id],
-                          ); // Update in database// Mark as viewed when selected
-                      });
+                    onTap: () async {
+                      final id = await _getMessageId(message);
+                        if (id != -1) {
+                          setState(() {
+                            _selectedMessage = message;
+                            message.isViewed = true; // Update in memory
+                            _database!.update(
+                              'messages',
+                              message.toMap(),
+                              where: 'id = ?',
+                              whereArgs: [id],
+                            );
+                          });
+                        }
                     },
                     selected: _selectedMessage == message,
                     selectedTileColor: Theme.of(context).colorScheme.primary.withOpacity(0.1),
@@ -425,6 +440,11 @@ class _MyHomePageState extends State<MyHomePage> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
+                          Text(
+                            'Source: ${_selectedMessage!.sourceName}',
+                            style: Theme.of(context).textTheme.bodyMedium,
+                          ),
+                          const SizedBox(height: 4),
                           Text(
                             'Timestamp: ${_dateFormat.format(_selectedMessage!.timestamp)}',
                             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
