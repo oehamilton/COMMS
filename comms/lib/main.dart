@@ -63,7 +63,7 @@ class Message {
 }
 
 // Enum for menu options
-enum MenuOption { viewSettings, updatePhone, messageRetention }
+enum MenuOption { viewSettings, updatePhone, messageRetention, purgeOldMessages }
 
 class MyHomePage extends StatefulWidget {
   const MyHomePage({super.key, required this.title});
@@ -85,7 +85,7 @@ class _MyHomePageState extends State<MyHomePage> {
   Message? _selectedMessage;
 
   // DateTime formatter
-  final DateFormat _dateFormat = DateFormat('MM/dd/yyyy HH:mm');
+  final DateFormat _dateFormat = DateFormat('MM/dd/yyyy HH:mm:ss');
 
   // Phone number variable
   String? _phoneNumber;
@@ -111,6 +111,7 @@ class _MyHomePageState extends State<MyHomePage> {
     });
     _checkPhoneNumber();
     _initializeDatabase();
+    await _purgeOldMessages();
   }
 
   // Check and prompt for phone number on first run
@@ -138,7 +139,7 @@ class _MyHomePageState extends State<MyHomePage> {
             'sourceName': 'Device 1',
             'title': 'Maintenance Needed',
             'content': 'Endpoint device 1 requires urgent maintenance.',
-            'timestamp': DateTime(2025, 8, 7, 21, 58).toIso8601String(),
+            'timestamp': DateTime(2025, 8, 6, 21, 58).toIso8601String(),
             'isViewed': 0,
           });
           await db.insert('messages', {
@@ -183,10 +184,23 @@ class _MyHomePageState extends State<MyHomePage> {
 
 // Load messages from database
   Future<void> _loadMessages() async {
-    final List<Map<String, dynamic>> maps = await _database!.query('messages');
+    final List<Map<String, dynamic>> maps = await _database!.query('messages', orderBy: 'timestamp DESC');
     setState(() {
       _messages = maps.map((map) => Message.fromMap(map)).toList();
     });
+  }
+
+  // Function to purge old messages
+  Future<void> _purgeOldMessages() async {
+      if (_messageRetentionDays != null && _database != null) {
+        final threshold = DateTime.now().subtract(Duration(days: _messageRetentionDays!));
+        await _database!.delete(
+          'messages',
+          where: 'timestamp < ?',
+          whereArgs: [threshold.toIso8601String()],
+        );
+        _loadMessages(); // Refresh the message list after purge
+      }
   }
 
 // Function to show phone number input dialog
@@ -197,13 +211,14 @@ class _MyHomePageState extends State<MyHomePage> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Update Phone Number'),
+        title: Text('Update Phone Number',
+        style: Theme.of(context).textTheme.titleMedium?.copyWith(fontSize: 18, fontWeight: FontWeight.bold),),
         content: Form(
           key: formKey,
           child: TextFormField(
             controller: controller,
             decoration: const InputDecoration(
-              labelText: 'Phone Number (e.g., +1XXXYYYZZZZ)',
+              labelText: 'Phone Number (e.g., XXXYYYZZZZ)',
               border: OutlineInputBorder(),
             ),
             keyboardType: TextInputType.phone,
@@ -211,9 +226,9 @@ class _MyHomePageState extends State<MyHomePage> {
               if (value == null || value.isEmpty) {
                 return 'Please enter a phone number';
               }
-              final regExp = RegExp(r'^\+1\d{10}$');
+              final regExp = RegExp(r'^\d{10}$');
               if (!regExp.hasMatch(value)) {
-                return 'Enter a valid US phone number (e.g., +1XXXYYYZZZZ)';
+                return 'Enter a valid US phone number (e.g., XXXYYYZZZZ)';
               }
               return null;
             },
@@ -250,7 +265,7 @@ class _MyHomePageState extends State<MyHomePage> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Message Retention'),
+        title: Text('Message Retention',style: Theme.of(context).textTheme.titleMedium?.copyWith(fontSize: 18, fontWeight: FontWeight.bold),),
         content: Form(
           key: formKey,
           child: TextFormField(
@@ -299,19 +314,19 @@ class _MyHomePageState extends State<MyHomePage> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Settings'),
+        title: Text('Settings',style: Theme.of(context).textTheme.titleMedium?.copyWith(fontSize: 18, fontWeight: FontWeight.bold),),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
               'Phone Number: ${_phoneNumber ?? 'none'}',
-              style: Theme.of(context).textTheme.bodyLarge,
+              style: Theme.of(context).textTheme.bodyMedium,
             ),
             const SizedBox(height: 8),
             Text(
               'Retention Period: ${_messageRetentionDays != null ? '$_messageRetentionDays days' : 'none'}',
-              style: Theme.of(context).textTheme.bodyLarge,
+              style: Theme.of(context).textTheme.bodyMedium,
             ),
           ],
         ),
@@ -344,7 +359,7 @@ class _MyHomePageState extends State<MyHomePage> {
         title: Text(widget.title),
                 actions: [
           PopupMenuButton<MenuOption>(
-            onSelected: (value) {
+            onSelected: (value) async {
               switch (value) {
                 case MenuOption.updatePhone:
                   _showPhoneNumberDialog();
@@ -352,6 +367,8 @@ class _MyHomePageState extends State<MyHomePage> {
                   _showMessageRetentionDialog();
                 case MenuOption.viewSettings:
                 _showSettingsDialog();
+                case MenuOption.purgeOldMessages:
+                await _purgeOldMessages(); // Trigger purge
               }
             },
             itemBuilder: (context) => [
@@ -365,6 +382,10 @@ class _MyHomePageState extends State<MyHomePage> {
               const PopupMenuItem(
                 value: MenuOption.messageRetention,
                 child: Text('Message Retention'),
+              ),
+              const PopupMenuItem(
+                value: MenuOption.purgeOldMessages,
+                child: Text('Purge Old Messages'),
               ),
             ],
           ),
