@@ -92,6 +92,9 @@ class _MyHomePageState extends State<MyHomePage> {
     // Message retention variable
   int? _messageRetentionDays;
 
+  // Show unread messages only toggle
+  bool _showUnreadOnly = false;
+
     // SharedPreferences instance
   late SharedPreferences _prefs;
 
@@ -396,13 +399,25 @@ class _MyHomePageState extends State<MyHomePage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Messages row title
-            Text(
-              'Messages',
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: Theme.of(context).colorScheme.primary,
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Messages',
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: Theme.of(context).colorScheme.primary,
+                      ),
+                ),
+                Switch(
+                  value: _showUnreadOnly,
+                  onChanged:(value) {
+                    setState(() {_showUnreadOnly = value;
+                    });
+                  },
+                  activeColor: Theme.of(context).colorScheme.primary,
                   ),
+              ],
             ),
             const SizedBox(height: 8),
             // Message list
@@ -411,6 +426,10 @@ class _MyHomePageState extends State<MyHomePage> {
                 itemCount: _messages.length,
                 itemBuilder: (context, index) {
                   final message = _messages[index];
+                  if (_showUnreadOnly && message.isViewed) {
+                    return const SizedBox.shrink();
+
+                  }
                   return ListTile(
                     title: Text(
                       message.title,
@@ -455,31 +474,33 @@ class _MyHomePageState extends State<MyHomePage> {
             ),
             const SizedBox(height: 8),
             Expanded(
-              child: _selectedMessage == null
-                  ? const Center(child: Text('Select a message to view details'))
-                  : SingleChildScrollView(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Source: ${_selectedMessage!.sourceName}',
-                            style: Theme.of(context).textTheme.bodyMedium,
+              child: _showUnreadOnly && (_selectedMessage?.isViewed ?? false)
+                  ? const Center(child: Text('No unread messages selected'))
+                  : _selectedMessage == null
+                      ? const Center(child: Text('Select a message to view details'))
+                      : SingleChildScrollView(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Source: ${_selectedMessage!.sourceName}',
+                                style: Theme.of(context).textTheme.bodyMedium,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Timestamp: ${_dateFormat.format(_selectedMessage!.timestamp)}',
+                                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                _selectedMessage!.content,
+                                style: Theme.of(context).textTheme.bodyLarge,
+                              ),
+                            ],
                           ),
-                          const SizedBox(height: 4),
-                          Text(
-                            'Timestamp: ${_dateFormat.format(_selectedMessage!.timestamp)}',
-                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                  fontWeight: FontWeight.bold,
-                                ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            _selectedMessage!.content,
-                            style: Theme.of(context).textTheme.bodyLarge,
-                          ),
-                        ],
-                      ),
-                    ),
+                        ),
             ),
           ],
         ),
