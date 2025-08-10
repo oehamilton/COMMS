@@ -81,7 +81,7 @@ class _MyHomePageState extends State<MyHomePage> {
   // Messages list (now loaded from database)
   List<Message> _messages = [];
 
-    // Track selected message
+  // Track selected message
   Message? _selectedMessage;
 
   // DateTime formatter
@@ -441,21 +441,30 @@ class _MyHomePageState extends State<MyHomePage> {
                       '${message.sourceName} - ${_dateFormat.format(message.timestamp)}',
                         style: Theme.of(context).textTheme.bodySmall,
                     ),
-                    onTap: () async {
-                      final id = await _getMessageId(message);
-                        if (id != -1) {
+                      onTap: () async {
+                        if (_selectedMessage != message) {
+                          if (_selectedMessage != null) {
+                            final lastId = await _getMessageId(_selectedMessage!);
+                            if (lastId != -1) {
+                              await _database!.update(
+                                'messages',
+                                {'isViewed': 1},
+                                where: 'id = ?',
+                                whereArgs: [lastId],
+                              );
+                              // Update the in-memory message
+                              final lastMessage = _messages.firstWhere((m) => m == _selectedMessage);
+                              setState(() {
+                                  lastMessage.isViewed = true;
+                                });
+                              
+                            }
+                          }
                           setState(() {
-                            _selectedMessage = message;
-                            message.isViewed = true; // Update in memory
-                            _database!.update(
-                              'messages',
-                              message.toMap(),
-                              where: 'id = ?',
-                              whereArgs: [id],
-                            );
+                            _selectedMessage = message; // Set new selection
                           });
                         }
-                    },
+                      },
                     selected: _selectedMessage == message,
                     selectedTileColor: Theme.of(context).colorScheme.primary.withOpacity(0.1),
                     //selectedTileColor: Theme.of(context).colorScheme.primary
