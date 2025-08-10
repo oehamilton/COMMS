@@ -30,10 +30,15 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  intl: ^0.19.0
+  intl: ^0.20.2
   shared_preferences: ^2.3.0
   sqflite: ^2.3.0
   path: ^1.8.0
+  amplify_flutter: ^2.0.0  # Gen 2 version
+  amplify_api: ^2.0.0
+  amplify_auth_cognito: ^2.0.0
+  amplify_datastore: ^2.0.0  # Optional for local sync
+  graphql_flutter: ^5.1.0
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
@@ -48,7 +53,7 @@ dev_dependencies:
   # activated in the `analysis_options.yaml` file located at the root of your
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
-  flutter_lints: ^5.0.0
+  flutter_lints: ^6.0.0
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
