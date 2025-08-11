@@ -400,24 +400,36 @@ class _MyHomePageState extends State<MyHomePage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'Messages',
-                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      color: Theme.of(context).colorScheme.primary,
-                      ),
-                ),
-                Switch(
-                  value: _showUnreadOnly,
-                  onChanged:(value) {
-                    setState(() {_showUnreadOnly = value;
-                    });
-                  },
-                  activeColor: Theme.of(context).colorScheme.primary,
-                  ),
-              ],
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                         Text(
+                         'Messages',
+                          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                             fontWeight: FontWeight.bold,
+                             color: Theme.of(context).colorScheme.primary,
+                             ),
+                         ),
+                          Row(
+                            children: [
+                                Text(
+                                    'Show Unread Only',
+                                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                        color: Theme.of(context).colorScheme.primary,              
+                                        ),
+                                    ),
+                            const SizedBox(width: 8),
+                            Switch(
+                              value: _showUnreadOnly,
+                              onChanged:(value) {
+                                setState(() {_showUnreadOnly = value;
+                                });
+                              },
+                              activeColor: Theme.of(context).colorScheme.primary,
+                              ),
+                            ],
+                 ),
+            
+            ],
             ),
             const SizedBox(height: 8),
             // Message list
