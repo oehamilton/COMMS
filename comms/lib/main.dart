@@ -3,9 +3,33 @@ import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart' as path;
+import 'package:amplify_flutter/amplify_flutter.dart';
+import 'package:amplify_auth_cognito/amplify_auth_cognito.dart';
+import 'package:amplify_api/amplify_api.dart';
+import 'package:graphql_flutter/graphql_flutter.dart';
+import 'dart:async';
 
-void main() {
-  runApp(const MyApp());
+import 'amplify_outputs.dart'; // Generated from sandbox
+
+void main() async {
+  try {
+      WidgetsFlutterBinding.ensureInitialized();
+      await _configureAmplify();
+      runApp(const MyApp());
+      } on AmplifyException catch (e) {
+           runApp(Text("Error configuring Amplify: ${e.message}"));
+          }
+
+}
+
+Future<void> _configureAmplify() async {
+  try {
+    await Amplify.addPlugins([AmplifyAuthCognito(), AmplifyAPI()]);
+    await Amplify.configure(amplifyConfig);
+    safePrint('Amplify configured successfully');
+  } on AmplifyException catch (e) {
+    safePrint('Failed to configure Amplify: $e');
+  }
 }
 
 class MyApp extends StatelessWidget {
@@ -75,34 +99,128 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
-  // Database instance
   Database? _database;
-
-  // Messages list (now loaded from database)
   List<Message> _messages = [];
-
-  // Track selected message
   Message? _selectedMessage;
-
-  // DateTime formatter
   final DateFormat _dateFormat = DateFormat('MM/dd/yyyy HH:mm:ss');
-
-  // Phone number variable
   String? _phoneNumber;
-    // Message retention variable
   int? _messageRetentionDays;
-
-  // Show unread messages only toggle
   bool _showUnreadOnly = false;
-
-    // SharedPreferences instance
+  bool _isAuthenticated = false;
   late SharedPreferences _prefs;
+  late GraphQLClient _graphqlClient;
+  StreamSubscription? _subscription;
+
+  // Show a local notification (placeholder implementation)
+  void _showLocalNotification(String title, String content) {
+    // You can integrate a notification package here, e.g., flutter_local_notifications.
+    // For now, just print to console.
+    safePrint('Notification: $title - $content');
+  }
 
   @override
   void initState() {
     super.initState();
-      _loadPreferences(); // Load saved values on app start
+    
+    final httpLink = HttpLink('https://your-api-endpoint/graphql'); // Replace with your API endpoint
+    _graphqlClient = GraphQLClient(
+      link: httpLink,
+      cache: GraphQLCache(store: InMemoryStore()),
+    );
+    _checkAuthState();
+    _loadPreferences();
+    _initializeDatabase();
+    if (_isAuthenticated && _phoneNumber != null) {
+      _subscribeToMessages();
+    }
+  }
 
+  @override
+  void dispose() {
+    _subscription?.cancel();
+    super.dispose();
+  }
+
+
+  Future<void> _checkAuthState() async {
+    try {
+      final session = await Amplify.Auth.fetchAuthSession();
+      if (session.isSignedIn) {
+        setState(() {
+          _isAuthenticated = true;
+        });
+      } else {
+        _signInWithPhone();
+      }
+    } catch (e) {
+      safePrint('Auth check failed: $e');
+      _signInWithPhone();
+    }
+  }
+
+  Future<void> _signInWithPhone() async {
+    try {
+      final result = await Amplify.Auth.signIn(
+        username: '1' + (_phoneNumber ?? '19402063925'),
+        password: 'your_password_here', // Replace with actual password or handle securely
+      );
+      if (result.isSignedIn) {
+        setState(() {
+          _isAuthenticated = true;
+        });
+        if (_phoneNumber != null) {
+          _subscribeToMessages();
+        }
+      }
+    } on AuthException catch (e) {
+      safePrint('Sign in failed: $e');
+    }
+  }
+
+ void _subscribeToMessages() {
+    if (_phoneNumber != null) {
+      try {
+        _subscription = _graphqlClient.subscribe(
+          SubscriptionOptions(
+            document: gql(r'''
+              subscription OnCreateMessage($phoneNumber: String!) {
+                onCreateMessage(filter: {phoneNumber: {eq: $phoneNumber}}) {
+                  id
+                  phoneNumber
+                  sourceName
+                  title
+                  content
+                  timestamp
+                  isViewed
+                }
+              }
+            '''),
+            variables: {'phoneNumber': _phoneNumber},
+          ),
+        ).listen(
+          (event) {
+            final data = event.data?['onCreateMessage'];
+            if (data != null) {
+              final newMessage = Message.fromMap({
+                'sourceName': data['sourceName'],
+                'title': data['title'],
+                'content': data['content'],
+                'timestamp': data['timestamp'],
+                'isViewed': data['isViewed'],
+              });
+              _addMessage(newMessage);
+              _showLocalNotification(newMessage.title, newMessage.content);
+            }
+          },
+          onError: (error) {
+            safePrint('Subscription error: $error');
+          },
+        );
+        safePrint('Subscribed to messages for phone: $_phoneNumber');
+      } catch (e) {
+        safePrint('Subscription setup failed: $e');
+      }
+    }
   }
 
   // Load saved preferences
@@ -206,8 +324,16 @@ class _MyHomePageState extends State<MyHomePage> {
       }
   }
 
+// Add a new message to the database and update the UI
+Future<void> _addMessage(Message message) async {
+  if (_database != null) {
+    await _database!.insert('messages', message.toMap());
+    await _loadMessages();
+  }
+}
+
 // Function to show phone number input dialog
-  void _showPhoneNumberDialog() {
+void _showPhoneNumberDialog() {
     final formKey = GlobalKey<FormState>();
     final controller = TextEditingController();
 
