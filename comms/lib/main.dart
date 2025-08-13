@@ -160,9 +160,11 @@ class _MyHomePageState extends State<MyHomePage> {
 
   Future<void> _signInWithPhone() async {
     try {
+      String formattedPhone = '+1${_phoneNumber ?? '9402063925'}';
+      safePrint('Formatted Phone: $formattedPhone');
       final result = await Amplify.Auth.signIn(
-        username: '1' + (_phoneNumber ?? '19402063925'),
-        password: 'your_password_here', // Replace with actual password or handle securely
+        username: formattedPhone,
+        password: 'TestPass123!', // Replace with actual password or handle securely
       );
       if (result.isSignedIn) {
         setState(() {
