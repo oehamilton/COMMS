@@ -121,18 +121,32 @@ class _MyHomePageState extends State<MyHomePage> {
   @override
   void initState() {
     super.initState();
-    
-    final httpLink = HttpLink('https://your-api-endpoint/graphql'); // Replace with your API endpoint
+    safePrint('initState');
+    final httpLink = HttpLink('https://pudgdftpfngldpdmnoyz637bgq.appsync-api.us-west-2.amazonaws.com/graphql'); 
     _graphqlClient = GraphQLClient(
       link: httpLink,
       cache: GraphQLCache(store: InMemoryStore()),
     );
-    _checkAuthState();
-    _loadPreferences();
-    _initializeDatabase();
+    _initAsync();
+
+  }
+
+
+  Future<void> _initAsync() async {
+    safePrint("Check Auth State 1");
+    await _checkAuthState();  // Wait for auth check to complete
+
+    safePrint("Load Preferences 2");
+    await _loadPreferences();  // Wait for preferences to load
+
+    safePrint("Initialize Database 3");
+    await _initializeDatabase();  // Wait for DB init to complete
+
+    safePrint('Subscribe to Message 4? $_isAuthenticated, $_phoneNumber');
     if (_isAuthenticated && _phoneNumber != null) {
       _subscribeToMessages();
-    }
+      safePrint('Subscribed to Message? TRUE'); // Wait for subscription if needed
+    } else {safePrint('Subscribe to Message? FALSE');}
   }
 
   @override
@@ -148,8 +162,10 @@ class _MyHomePageState extends State<MyHomePage> {
       if (session.isSignedIn) {
         setState(() {
           _isAuthenticated = true;
+          safePrint('Phone Already Signed in - Auth check Success!!');
         });
       } else {
+        safePrint('Not signed in, trying!');
         _signInWithPhone();
       }
     } catch (e) {
@@ -160,28 +176,163 @@ class _MyHomePageState extends State<MyHomePage> {
 
   Future<void> _signInWithPhone() async {
     try {
-      String formattedPhone = '+1${_phoneNumber ?? '9402063925'}';
+      String formattedPhone = '+1${_phoneNumber ?? '+19402063925'}';
+      safePrint('UnFormatted Phone: $_phoneNumber');
       safePrint('Formatted Phone: $formattedPhone');
       final result = await Amplify.Auth.signIn(
         username: formattedPhone,
-        password: 'TestPass123!', // Replace with actual password or handle securely
+        password: 'Cagey73fq1!',  // Your temporary password
       );
       if (result.isSignedIn) {
         setState(() {
           _isAuthenticated = true;
+          safePrint('Authenticated!');
         });
-        if (_phoneNumber != null) {
+/*         if (_phoneNumber != null) {
           _subscribeToMessages();
-        }
+          safePrint('Subscribed to Phone: $formattedPhone');
+        } */
+      } else if (result.nextStep.signInStep == AuthSignInStep.confirmSignInWithNewPassword) {
+        safePrint('Temporary password detected - prompting for new password');
+        _showNewPasswordDialog();  // Show dialog to set new password
+      } else {
+        safePrint('Sign in failed! Next step: ${result.nextStep.signInStep}');
       }
-    } on AuthException catch (e) {
+    } catch (e) {
       safePrint('Sign in failed: $e');
     }
   }
 
+
+  void _showNewPasswordDialog() {
+    final TextEditingController newPasswordController = TextEditingController();
+    final TextEditingController confirmPasswordController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Set New Password'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: newPasswordController,
+                obscureText: true,
+                decoration: const InputDecoration(
+                  labelText: 'New Password',
+                  hintText: 'Must include uppercase, lowercase, number, symbol (min 8 chars)',
+                ),
+              ),
+              TextField(
+                controller: confirmPasswordController,
+                obscureText: true,
+                decoration: const InputDecoration(
+                  labelText: 'Confirm New Password',
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () async {
+                final newPass = newPasswordController.text;
+                final confirmPass = confirmPasswordController.text;
+                if (newPass != confirmPass) {
+                  safePrint('Passwords do not match');
+                  return;
+                }
+                if (newPass.length < 8) {
+                  safePrint('Password too short');
+                  return;
+                }
+                Navigator.pop(context);
+                await _confirmNewPassword(newPass);  // Call the confirmation logic
+              },
+              child: const Text('Submit'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+Future<void> _confirmNewPassword(String newPassword) async {
+  try {
+    final confirmResult = await Amplify.Auth.confirmSignIn(
+      confirmationValue: newPassword,
+    );
+    if (confirmResult.isSignedIn) {
+      setState(() {
+        _isAuthenticated = true;
+        safePrint('New password set and authenticated!');
+      });
+/*       if (_phoneNumber != null) {
+        _subscribeToMessages();
+        safePrint('Subscribed to Phone: +1$_phoneNumber');
+      } */
+    } else {
+      safePrint('Confirm sign-in failed: ${confirmResult.nextStep.signInStep}');
+    }
+    } catch (e) {
+      safePrint('Confirm sign-in error: $e');
+    }
+  }
+
+StreamSubscription<GraphQLResponse<Message>>? subscription;
+
+void _subscribeToMessages() {
+  if (_phoneNumber != null) {
+   
+    // Use GraphQL API directly for subscription since ModelType is not available
+    _subscription = _graphqlClient.subscribe(
+      SubscriptionOptions(
+        document: gql(r'''
+          subscription OnCreateMessage($phoneNumber: String!) {
+            onCreateMessage(filter: {phoneNumber: {eq: $phoneNumber}}) {
+              sourceName
+              title
+              content
+              timestamp
+              isViewed
+            }
+          }
+        '''),
+        variables: {'phoneNumber': _phoneNumber},
+      ),
+    ).listen(
+      (event) {
+        final data = event.data?['onCreateMessage'];
+        if (data != null) {
+          final newMessage = Message.fromMap({
+            'sourceName': data['sourceName'],
+            'title': data['title'],
+            'content': data['content'],
+            'timestamp': data['timestamp'],
+            'isViewed': data['isViewed'],
+          });
+          _addMessage(newMessage);
+          _showLocalNotification(newMessage.title, newMessage.content);
+        }
+      },
+      onError: (error) => safePrint('Amplify subscription error: $error'),
+    );
+
+
+    safePrint('Amplify subscribed to messages for phone: $_phoneNumber');
+  }
+}
+
+/* 
  void _subscribeToMessages() {
+    safePrint('Subscribing to: {$_phoneNumber}');
     if (_phoneNumber != null) {
       try {
+        safePrint('Subscribing to: {$_phoneNumber}');
         _subscription = _graphqlClient.subscribe(
           SubscriptionOptions(
             document: gql(r'''
@@ -223,22 +374,30 @@ class _MyHomePageState extends State<MyHomePage> {
         safePrint('Subscription setup failed: $e');
       }
     }
-  }
+  } */
 
   // Load saved preferences
   Future<void> _loadPreferences() async{
+    safePrint('Loading Preferences');
     _prefs = await SharedPreferences.getInstance();
     setState(() {
       _phoneNumber = _prefs.getString('phone_number');
       _messageRetentionDays = _prefs.getInt('message_retention_days');
     });
     _checkPhoneNumber();
-    _initializeDatabase();
+    //_initializeDatabase();
     await _purgeOldMessages();
+    //Format number with +1
+    _phoneNumber = '+1$_phoneNumber';
+    
+/*     if (_isAuthenticated && _phoneNumber != null) {
+      _subscribeToMessages();
+    } */
   }
 
   // Check and prompt for phone number on first run
   void _checkPhoneNumber() {
+    safePrint('Is phone number already set in preferences?');
     if (_phoneNumber == null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _showPhoneNumberDialog();
@@ -249,6 +408,7 @@ class _MyHomePageState extends State<MyHomePage> {
 
 // Initialize database and load messages
   Future<void> _initializeDatabase() async {
+    safePrint('Initializing Local Database');
     _database = await openDatabase(
       path.join(await getDatabasesPath(), 'comms_database.db'),
       version: 1,
@@ -307,6 +467,7 @@ class _MyHomePageState extends State<MyHomePage> {
 
 // Load messages from database
   Future<void> _loadMessages() async {
+    safePrint('Loading Local Messages');
     final List<Map<String, dynamic>> maps = await _database!.query('messages', orderBy: 'timestamp DESC');
     setState(() {
       _messages = maps.map((map) => Message.fromMap(map)).toList();
@@ -328,6 +489,7 @@ class _MyHomePageState extends State<MyHomePage> {
 
 // Add a new message to the database and update the UI
 Future<void> _addMessage(Message message) async {
+  safePrint('Adding Messages to local database');
   if (_database != null) {
     await _database!.insert('messages', message.toMap());
     await _loadMessages();
