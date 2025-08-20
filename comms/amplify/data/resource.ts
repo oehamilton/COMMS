@@ -1,6 +1,4 @@
 import { type ClientSchema, a, defineData } from '@aws-amplify/backend';
-import { UserPoolEmail } from 'aws-cdk-lib/aws-cognito';
-import { EmailEncoding } from 'aws-cdk-lib/aws-ses-actions';
 
 const schema = a.schema({
   Message: a
@@ -13,7 +11,10 @@ const schema = a.schema({
       timestamp: a.datetime().required(),
       isViewed: a.boolean().default(false).required(),
     })
-    .authorization(allow => allow.owner()),
+    .authorization(allow => [
+      allow.ownerDefinedIn('phoneNumber').to(['read']),
+      allow.authenticated('identityPool').to(['create', 'read', 'update', 'delete'])
+    ]),
 });
 
 export type Schema = ClientSchema<typeof schema>;

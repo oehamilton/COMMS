@@ -158,7 +158,10 @@ class _MyHomePageState extends State<MyHomePage> {
 
   Future<void> _checkAuthState() async {
     try {
-      final session = await Amplify.Auth.fetchAuthSession();
+      //final session = await Amplify.Auth.fetchAuthSession();
+      final session = await Amplify.Auth.fetchAuthSession() as CognitoAuthSession;      
+      safePrint('Cognito Access Token: ${session.userPoolTokensResult}');
+      //safePrint('Cognito Access Token: ${session.userPoolTokens?.accessToken}');
       if (session.isSignedIn) {
         setState(() {
           _isAuthenticated = true;
@@ -287,94 +290,49 @@ StreamSubscription<GraphQLResponse<Message>>? subscription;
 
 void _subscribeToMessages() {
   if (_phoneNumber != null) {
-   
-    // Use GraphQL API directly for subscription since ModelType is not available
-    _subscription = _graphqlClient.subscribe(
-      SubscriptionOptions(
-        document: gql(r'''
-          subscription OnCreateMessage($phoneNumber: String!) {
-            onCreateMessage(filter: {phoneNumber: {eq: $phoneNumber}}) {
-              sourceName
-              title
-              content
-              timestamp
-              isViewed
-            }
-          }
-        '''),
-        variables: {'phoneNumber': _phoneNumber},
-      ),
-    ).listen(
-      (event) {
-        final data = event.data?['onCreateMessage'];
-        if (data != null) {
-          final newMessage = Message.fromMap({
-            'sourceName': data['sourceName'],
-            'title': data['title'],
-            'content': data['content'],
-            'timestamp': data['timestamp'],
-            'isViewed': data['isViewed'],
-          });
-          _addMessage(newMessage);
-          _showLocalNotification(newMessage.title, newMessage.content);
+    const String subscriptionDoc = r'''
+      subscription OnCreateMessage($phoneNumber: String!) {
+        onCreateMessage(filter: {phoneNumber: {eq: $phoneNumber}}) {
+          id
+          phoneNumber
+          sourceName
+          title
+          content
+          timestamp
+          isViewed
         }
-      },
-      onError: (error) => safePrint('Amplify subscription error: $error'),
+      }
+    ''';
+
+    final subscriptionRequest = GraphQLRequest<String>(
+      document: subscriptionDoc,
+      variables: {'phoneNumber': _phoneNumber},
+      decodePath: 'onCreateMessage',
     );
 
+    final Stream<GraphQLResponse<String>> operation = Amplify.API.subscribe(
+      subscriptionRequest,
+      onEstablished: () => safePrint('Subscription established for phone: $_phoneNumber'),
+    );
 
-    safePrint('Amplify subscribed to messages for phone: $_phoneNumber');
+    _subscription = operation.listen(
+      (event) {
+        if (event.data != null) {
+          final newMessage = event.data!;  // If using modelType, it's already decoded to Message
+          safePrint(newMessage); //Coding & Debuging Step
+          //newMessage should be a Json string and will need to be parse and setup to add new message
+          //_addMessage(newMessage);
+          //_showLocalNotification(newMessage.title, newMessage.content);
+        }
+      },
+      onError: (Object error) {
+        safePrint('Subscription error: $error');
+      },
+    );
+
+    safePrint('Subscribed to messages for phone: $_phoneNumber');
   }
 }
-
-/* 
- void _subscribeToMessages() {
-    safePrint('Subscribing to: {$_phoneNumber}');
-    if (_phoneNumber != null) {
-      try {
-        safePrint('Subscribing to: {$_phoneNumber}');
-        _subscription = _graphqlClient.subscribe(
-          SubscriptionOptions(
-            document: gql(r'''
-              subscription OnCreateMessage($phoneNumber: String!) {
-                onCreateMessage(filter: {phoneNumber: {eq: $phoneNumber}}) {
-                  id
-                  phoneNumber
-                  sourceName
-                  title
-                  content
-                  timestamp
-                  isViewed
-                }
-              }
-            '''),
-            variables: {'phoneNumber': _phoneNumber},
-          ),
-        ).listen(
-          (event) {
-            final data = event.data?['onCreateMessage'];
-            if (data != null) {
-              final newMessage = Message.fromMap({
-                'sourceName': data['sourceName'],
-                'title': data['title'],
-                'content': data['content'],
-                'timestamp': data['timestamp'],
-                'isViewed': data['isViewed'],
-              });
-              _addMessage(newMessage);
-              _showLocalNotification(newMessage.title, newMessage.content);
-            }
-          },
-          onError: (error) {
-            safePrint('Subscription error: $error');
-          },
-        );
-        safePrint('Subscribed to messages for phone: $_phoneNumber');
-      } catch (e) {
-        safePrint('Subscription setup failed: $e');
-      }
-    }
-  } */
 
   // Load saved preferences
   Future<void> _loadPreferences() async{
