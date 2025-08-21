@@ -111,7 +111,9 @@ class _MyHomePageState extends State<MyHomePage> {
   late GraphQLClient _graphqlClient;
   StreamSubscription? _subscription;
   bool _messageDialogActive = false;
-
+  bool phoneNumberNull = true;
+  bool subscribedToMessages = false;
+  bool callcheckAuthState = false;
 
   void _showLocalNotification(String title, String content) {
   _messageDialogActive = true;
@@ -164,20 +166,32 @@ class _MyHomePageState extends State<MyHomePage> {
 
 
   Future<void> _initAsync() async {
-    safePrint("Check Auth State 1");
-    await _checkAuthState();  // Wait for auth check to complete
-
-    safePrint("Load Preferences 2");
+    
+    safePrint("Load Preferences 1");
     await _loadPreferences();  // Wait for preferences to load
+        
+    safePrint("Wait for phone number 2");
+    while(!callcheckAuthState){
+      if (_phoneNumber != null) {
+        callcheckAuthState = true;
+        safePrint("Phone Number Not Null; check for authState");
+        await _checkAuthState();
+        }
+        await Future.delayed(Duration(milliseconds: 500));
+    }
 
     safePrint("Initialize Database 3");
     await _initializeDatabase();  // Wait for DB init to complete
 
-    safePrint('Subscribe to Message 4? $_isAuthenticated, $_phoneNumber');
-    if (_isAuthenticated && _phoneNumber != null) {
-      _subscribeToMessages();
-      safePrint('Subscribed to Message? TRUE'); // Wait for subscription if needed
-    } else {safePrint('Subscribe to Message? FALSE');}
+    while((_phoneNumber == null) | !_isAuthenticated | !subscribedToMessages) {
+      safePrint('Subscribe to Message 4? $phoneNumberNull, $_isAuthenticated, $_phoneNumber');
+      if (_isAuthenticated && _phoneNumber != null) {
+        _subscribeToMessages();
+        safePrint('Subscribed to Message? TRUE'); // Wait for subscription if needed
+        _showLocalNotification('Subscribed:','$_phoneNumber');
+      } else {safePrint('Subscribe to Message? FALSE');}
+    await Future.delayed(Duration(milliseconds: 1000));
+    }
   }
 
   @override
@@ -193,24 +207,27 @@ class _MyHomePageState extends State<MyHomePage> {
       final session = await Amplify.Auth.fetchAuthSession() as CognitoAuthSession;      
       safePrint('Cognito Access Token: ${session.userPoolTokensResult}');
       //safePrint('Cognito Access Token: ${session.userPoolTokens?.accessToken}');
-      if (session.isSignedIn) {
-        setState(() {
-          _isAuthenticated = true;
-          safePrint('Phone Already Signed in - Auth check Success!!');
-        });
-      } else {
-        safePrint('Not signed in, trying!');
-        _signInWithPhone();
+      if (_phoneNumber != null) {phoneNumberNull = false;
+        if (session.isSignedIn) {
+          setState(() {
+            _isAuthenticated = true;
+            safePrint('Phone Already Signed in - Auth check Success!!');
+            _showLocalNotification('_checkAuthState:','Phone Already Signed in - Auth check Success!!');
+          });
+        } else {
+          safePrint('Not signed in, trying!');
+          await _signInWithPhone();
+        }
       }
     } catch (e) {
       safePrint('Auth check failed: $e');
-      _signInWithPhone();
+      await _signInWithPhone();
     }
   }
 
   Future<void> _signInWithPhone() async {
     try {
-      String formattedPhone = '+1${_phoneNumber ?? '+19402063925'}';
+      String formattedPhone = '$_phoneNumber';
       safePrint('UnFormatted Phone: $_phoneNumber');
       safePrint('Formatted Phone: $formattedPhone');
       final result = await Amplify.Auth.signIn(
@@ -343,7 +360,9 @@ void _subscribeToMessages() {
 
     final Stream<GraphQLResponse<String>> operation = Amplify.API.subscribe(
       subscriptionRequest,
-      onEstablished: () => safePrint('Subscription established for phone: $_phoneNumber'),
+      onEstablished: () => {
+        safePrint('Subscription established for phone: $_phoneNumber'), 
+        subscribedToMessages = true},
     );
 
     _subscription = operation.listen(
@@ -373,7 +392,7 @@ void _subscribeToMessages() {
         safePrint('Subscription error: $error');
       },
     );
-
+    subscribedToMessages = true;
     safePrint('Subscribed to messages for phone: $_phoneNumber');
   }
 }
@@ -386,7 +405,7 @@ void _subscribeToMessages() {
       _phoneNumber = _prefs.getString('phone_number');
       _messageRetentionDays = _prefs.getInt('message_retention_days');
     });
-    _checkPhoneNumber();
+    await _checkPhoneNumber();
     //_initializeDatabase();
     await _purgeOldMessages();
     //Format number with +1
@@ -398,10 +417,10 @@ void _subscribeToMessages() {
   }
 
   // Check and prompt for phone number on first run
-  void _checkPhoneNumber() {
+  Future<void> _checkPhoneNumber() async {
     safePrint('Is phone number already set in preferences?');
     if (_phoneNumber == null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
+       WidgetsBinding.instance.addPostFrameCallback((_) {
         _showPhoneNumberDialog();
       });
     }
@@ -492,15 +511,16 @@ void _subscribeToMessages() {
 // Add a new message to the database and update the UI
 Future<void> _addMessage(Message message) async {
   safePrint('Adding Messages to local database');
-
+ 
   if (_database != null) {
     await _database!.insert('messages', message.toMap());
     await _loadMessages();
+    
   }
 }
 
 // Function to show phone number input dialog
-void _showPhoneNumberDialog() {
+Future<void> _showPhoneNumberDialog() async {
     final formKey = GlobalKey<FormState>();
     final controller = TextEditingController();
 
@@ -747,6 +767,7 @@ void _showPhoneNumberDialog() {
                         style: Theme.of(context).textTheme.bodySmall,
                     ),
                       onTap: () async {
+                        try {
                         if (_selectedMessage != message) {
                           if (_selectedMessage != null) {
                             final lastId = await _getMessageId(_selectedMessage!);
@@ -768,7 +789,11 @@ void _showPhoneNumberDialog() {
                           setState(() {
                             _selectedMessage = message; // Set new selection
                           });
-                        }
+                        }} catch (e) {safePrint(e);
+                                      setState(() {
+                                        _selectedMessage = message; // Set new selection
+                                      }); 
+                                      }
                       },
                     selected: _selectedMessage == message,
                     selectedTileColor: Theme.of(context).colorScheme.primary.withOpacity(0.1),
