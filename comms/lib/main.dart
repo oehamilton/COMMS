@@ -8,7 +8,7 @@ import 'package:amplify_auth_cognito/amplify_auth_cognito.dart';
 import 'package:amplify_api/amplify_api.dart';
 import 'package:graphql_flutter/graphql_flutter.dart';
 import 'dart:async';
-
+import 'dart:convert';
 import 'amplify_outputs.dart'; // Generated from sandbox
 
 void main() async {
@@ -110,13 +110,44 @@ class _MyHomePageState extends State<MyHomePage> {
   late SharedPreferences _prefs;
   late GraphQLClient _graphqlClient;
   StreamSubscription? _subscription;
+  bool _messageDialogActive = false;
 
-  // Show a local notification (placeholder implementation)
+
   void _showLocalNotification(String title, String content) {
-    // You can integrate a notification package here, e.g., flutter_local_notifications.
-    // For now, just print to console.
-    safePrint('Notification: $title - $content');
-  }
+  _messageDialogActive = true;
+  safePrint('Notification: $title - $content');
+  showDialog(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Text('New Message', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontSize: 18, fontWeight: FontWeight.bold),),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Title: $title',
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Content: $content',
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Close'),
+        ),
+      ],
+    ),
+  ).then((_) {
+    setState(() {
+          _messageDialogActive = false;
+          });
+      });
+}
 
   @override
   void initState() {
@@ -319,10 +350,23 @@ void _subscribeToMessages() {
       (event) {
         if (event.data != null) {
           final newMessage = event.data!;  // If using modelType, it's already decoded to Message
-          safePrint(newMessage); //Coding & Debuging Step
+          
+          final jsonMap = json.decode(newMessage) as Map<String, dynamic>;
+          final inner = jsonMap['onCreateMessage'] as Map<String, dynamic>;
+          final theMessage = Message(
+            sourceName: inner['sourceName'] as String,
+            title: inner['title'] as String,
+            content: inner['content'] as String,
+            timestamp: DateTime.parse(inner['timestamp'] as String),
+            isViewed: inner['isViewed'] as bool,
+            );
+              
+          safePrint(theMessage); //Coding & Debuging Step
           //newMessage should be a Json string and will need to be parse and setup to add new message
-          //_addMessage(newMessage);
-          //_showLocalNotification(newMessage.title, newMessage.content);
+          _addMessage(theMessage);
+          if (!_messageDialogActive) {
+            _showLocalNotification(theMessage.title, theMessage.content);
+            }
         }
       },
       onError: (Object error) {
@@ -448,6 +492,7 @@ void _subscribeToMessages() {
 // Add a new message to the database and update the UI
 Future<void> _addMessage(Message message) async {
   safePrint('Adding Messages to local database');
+
   if (_database != null) {
     await _database!.insert('messages', message.toMap());
     await _loadMessages();
