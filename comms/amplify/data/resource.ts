@@ -12,7 +12,7 @@ const schema = a.schema({
       isViewed: a.boolean().default(false).required(),
     })
     .authorization(allow => [
-      allow.ownerDefinedIn('phoneNumber').identityClaim('phone_number').to(['read']),
+      allow.ownerDefinedIn('phoneNumber').identityClaim('phone_number').to(['read', 'update']),
       allow.authenticated('identityPool').to(['create', 'read', 'update', 'delete'])
     ]),
 });
