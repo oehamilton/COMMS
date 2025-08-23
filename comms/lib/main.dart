@@ -10,6 +10,7 @@ import 'package:graphql_flutter/graphql_flutter.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'amplify_outputs.dart'; // Generated from sandbox
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 void main() async {
   try {
@@ -114,8 +115,22 @@ class _MyHomePageState extends State<MyHomePage> {
   bool phoneNumberNull = true;
   bool subscribedToMessages = false;
   bool callcheckAuthState = false;
+  late FlutterLocalNotificationsPlugin _notificationsPlugin;
 
-  void _showLocalNotification(String title, String content) {
+// SHOW MESSAGE NOTIFICATIONS ////////////////////////////////////////////////////////////////////////
+
+  void _showLocalNotification(String title, String content) async {
+    const androidDetails = AndroidNotificationDetails(
+      'channel_id', 'Channel Name',
+      channelDescription: 'Channel Description',
+      importance: Importance.max,
+      priority: Priority.high,
+    );
+    const details = NotificationDetails(android: androidDetails);
+    await _notificationsPlugin.show(0, title, content, details);
+  }
+
+/*   void _showLocalNotification(String title, String content) {
   _messageDialogActive = true;
   safePrint('Notification: $title - $content');
   showDialog(
@@ -149,7 +164,7 @@ class _MyHomePageState extends State<MyHomePage> {
           _messageDialogActive = false;
           });
       });
-}
+} */
 
   @override
   void initState() {
@@ -161,12 +176,15 @@ class _MyHomePageState extends State<MyHomePage> {
       cache: GraphQLCache(store: InMemoryStore()),
     );
     _initAsync();
-
+    
   }
 
 
   Future<void> _initAsync() async {
-    
+    _notificationsPlugin = FlutterLocalNotificationsPlugin();
+    const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
+    const initSettings = InitializationSettings(android: androidInit);
+    await _notificationsPlugin.initialize(initSettings);
     safePrint("Load Preferences 1");
     await _loadPreferences();  // Wait for preferences to load
         
@@ -188,10 +206,13 @@ class _MyHomePageState extends State<MyHomePage> {
       if (_isAuthenticated && _phoneNumber != null) {
         _subscribeToMessages();
         safePrint('Subscribed to Message? TRUE'); // Wait for subscription if needed
-        _showLocalNotification('Subscribed:','$_phoneNumber');
+        //_showLocalNotification('Subscribed:','$_phoneNumber');
       } else {safePrint('Subscribe to Message? FALSE');}
     await Future.delayed(Duration(milliseconds: 1000));
     }
+
+
+
   }
 
   @override
@@ -212,7 +233,7 @@ class _MyHomePageState extends State<MyHomePage> {
           setState(() {
             _isAuthenticated = true;
             safePrint('Phone Already Signed in - Auth check Success!!');
-            _showLocalNotification('_checkAuthState:','Phone Already Signed in - Auth check Success!!');
+            //_showLocalNotification('_checkAuthState:','Phone Already Signed in - Auth check Success!!');
           });
         } else {
           safePrint('Not signed in, trying!');
