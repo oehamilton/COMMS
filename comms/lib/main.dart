@@ -105,6 +105,7 @@ class _MyHomePageState extends State<MyHomePage> {
   Message? _selectedMessage;
   final DateFormat _dateFormat = DateFormat('MM/dd/yyyy HH:mm:ss');
   String? _phoneNumber;
+  String? _registrationSecret;
   int? _messageRetentionDays;
   bool _showUnreadOnly = false;
   bool _isAuthenticated = false;
@@ -210,9 +211,6 @@ class _MyHomePageState extends State<MyHomePage> {
       } else {safePrint('Subscribe to Message? FALSE');}
     await Future.delayed(Duration(milliseconds: 1000));
     }
-
-
-
   }
 
   @override
@@ -251,9 +249,10 @@ class _MyHomePageState extends State<MyHomePage> {
       String formattedPhone = '$_phoneNumber';
       safePrint('UnFormatted Phone: $_phoneNumber');
       safePrint('Formatted Phone: $formattedPhone');
+     
       final result = await Amplify.Auth.signIn(
         username: formattedPhone,
-        password: 'Cagey73fq1!',  // Your temporary password
+        password: _registrationSecret,  // Your temporary password
       );
       if (result.isSignedIn) {
         setState(() {
@@ -284,7 +283,7 @@ class _MyHomePageState extends State<MyHomePage> {
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: const Text('Set New Password'),
+          title: const Text('A New Secret is required!'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -292,15 +291,15 @@ class _MyHomePageState extends State<MyHomePage> {
                 controller: newPasswordController,
                 obscureText: true,
                 decoration: const InputDecoration(
-                  labelText: 'New Password',
-                  hintText: 'Must include uppercase, lowercase, number, symbol (min 8 chars)',
+                  labelText: 'New Secret',
+                  hintText: 'Must include uppercase, lowercase, number, symbol (min 10 chars)',
                 ),
               ),
               TextField(
                 controller: confirmPasswordController,
                 obscureText: true,
                 decoration: const InputDecoration(
-                  labelText: 'Confirm New Password',
+                  labelText: 'Confirm New Secret',
                 ),
               ),
             ],
@@ -315,15 +314,19 @@ class _MyHomePageState extends State<MyHomePage> {
                 final newPass = newPasswordController.text;
                 final confirmPass = confirmPasswordController.text;
                 if (newPass != confirmPass) {
-                  safePrint('Passwords do not match');
+                  safePrint('Secrets do not match');
                   return;
                 }
-                if (newPass.length < 8) {
-                  safePrint('Password too short');
+                if (newPass.length < 10) {
+                  safePrint('Secret too short');
                   return;
                 }
                 Navigator.pop(context);
                 await _confirmNewPassword(newPass);  // Call the confirmation logic
+                setState(() {
+                  _registrationSecret = newPass; // Store Secret
+                  _prefs.setString('registration_secret', _registrationSecret!);
+                });
               },
               child: const Text('Submit'),
             ),
@@ -341,12 +344,9 @@ Future<void> _confirmNewPassword(String newPassword) async {
     if (confirmResult.isSignedIn) {
       setState(() {
         _isAuthenticated = true;
-        safePrint('New password set and authenticated!');
+        safePrint('New Secret set and authenticated!');
       });
-/*       if (_phoneNumber != null) {
-        _subscribeToMessages();
-        safePrint('Subscribed to Phone: +1$_phoneNumber');
-      } */
+
     } else {
       safePrint('Confirm sign-in failed: ${confirmResult.nextStep.signInStep}');
     }
@@ -417,7 +417,7 @@ void _subscribeToMessages() {
     safePrint('Subscribed to messages for phone: $_phoneNumber');
   }
 }
-
+////////////////////////////////////////////////////////////////////////////////////////////////////
   // Load saved preferences
   Future<void> _loadPreferences() async{
     safePrint('Loading Preferences');
@@ -425,16 +425,16 @@ void _subscribeToMessages() {
     setState(() {
       _phoneNumber = _prefs.getString('phone_number');
       _messageRetentionDays = _prefs.getInt('message_retention_days');
+      _registrationSecret = _prefs.getString('registration_secret');
     });
+
     await _checkPhoneNumber();
-    //_initializeDatabase();
+    await _checkRegistrationSecret();
+    await _checkRegistrationSecret();    
     await _purgeOldMessages();
-    //Format number with +1
-    _phoneNumber = '+1$_phoneNumber';
     
-/*     if (_isAuthenticated && _phoneNumber != null) {
-      _subscribeToMessages();
-    } */
+    _phoneNumber = '+1$_phoneNumber';//Format number with +1
+    
   }
 
   // Check and prompt for phone number on first run
@@ -446,7 +446,15 @@ void _subscribeToMessages() {
       });
     }
   }
-
+  // Check and prompt for phone secret on first run
+  Future<void> _checkRegistrationSecret() async {
+    safePrint('Is secret already set in preferences?');
+    if (_registrationSecret == null) {
+       WidgetsBinding.instance.addPostFrameCallback((_) {
+        _showRegistrationSecretDialog();
+      });
+    }
+  }
 
 // Initialize database and load messages
   Future<void> _initializeDatabase() async {
@@ -539,7 +547,7 @@ Future<void> _addMessage(Message message) async {
     
   }
 }
-
+//////////////////////////////////////////////////////////////////////////////////////////////////
 // Function to show phone number input dialog
 Future<void> _showPhoneNumberDialog() async {
     final formKey = GlobalKey<FormState>();
@@ -593,7 +601,62 @@ Future<void> _showPhoneNumberDialog() async {
     );
   }
 
+//////////////////////////////////////////////////////////////////////////////////////////////////
+// Function to show message secret input dialog
+Future<void> _showRegistrationSecretDialog() async {
+    final formKey = GlobalKey<FormState>();
+    final controller = TextEditingController();
 
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Enter Message Registration Secret',
+        style: Theme.of(context).textTheme.titleMedium?.copyWith(fontSize: 18, fontWeight: FontWeight.bold),),
+        content: Form(
+          key: formKey,
+          child: TextFormField(
+                  controller: controller,
+                  obscureText: true, // Masks input
+                  decoration: const InputDecoration(
+                    labelText: 'Registration Secret: ',
+                    border: OutlineInputBorder(),
+                  ),
+                  validator: (value) {
+                    if (value == null || value.isEmpty) {
+                      return 'Please enter the secret';
+                    }
+                    final regExp = RegExp(r'^(?=.*[A-Z])(?=.*[a-z])(?=.*\d)(?=.*[!@#$%^&*(),.?":{}|<>]).{10,}$');
+                    if (!regExp.hasMatch(value)) {
+                      return 'Must be 10+ chars with upper/lower, number, special char';
+                    }
+                    return null;
+                  },
+                ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              if (formKey.currentState!.validate()) {
+                setState(() {
+                  _registrationSecret = controller.text; // Store Secret
+                  _prefs.setString('registration_secret', _registrationSecret!);
+                });
+                Navigator.pop(context);
+              }
+            },
+            child: const Text('Submit'),
+          ),
+        ],
+      ),
+    );
+  }
+
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
  // Function to show message retention input dialog
   void _showMessageRetentionDialog() {
     final formKey = GlobalKey<FormState>();
