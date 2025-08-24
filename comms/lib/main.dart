@@ -180,38 +180,37 @@ class _MyHomePageState extends State<MyHomePage> {
     
   }
 
-
   Future<void> _initAsync() async {
     _notificationsPlugin = FlutterLocalNotificationsPlugin();
     const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
     const initSettings = InitializationSettings(android: androidInit);
     await _notificationsPlugin.initialize(initSettings);
     safePrint("Load Preferences 1");
-    await _loadPreferences();  // Wait for preferences to load
-        
-    safePrint("Wait for phone number 2");
-    while(!callcheckAuthState){
-      if (_phoneNumber != null) {
-        callcheckAuthState = true;
-        safePrint("Phone Number Not Null; check for authState");
-        await _checkAuthState();
-        }
-        await Future.delayed(Duration(milliseconds: 500));
-    }
+    await _loadPreferences();  // Just load vars
+
+    Completer<void> promptsCompleter = Completer<void>();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (_phoneNumber == null) await _showPhoneNumberDialog();
+      if (_registrationSecret == null) await _showRegistrationSecretDialog();
+      if (_phoneNumber != null) _phoneNumber = '+1$_phoneNumber';
+      promptsCompleter.complete();
+      safePrint("PromptCompleted!");
+    });
+    await promptsCompleter.future;
 
     safePrint("Initialize Database 3");
-    await _initializeDatabase();  // Wait for DB init to complete
+    await _initializeDatabase();  
+    await _purgeOldMessages();
 
-    while((_phoneNumber == null) | !_isAuthenticated | !subscribedToMessages) {
-      safePrint('Subscribe to Message 4? $phoneNumberNull, $_isAuthenticated, $_phoneNumber');
-      if (_isAuthenticated && _phoneNumber != null) {
-        _subscribeToMessages();
-        safePrint('Subscribed to Message? TRUE'); // Wait for subscription if needed
-        //_showLocalNotification('Subscribed:','$_phoneNumber');
-      } else {safePrint('Subscribe to Message? FALSE');}
-    await Future.delayed(Duration(milliseconds: 1000));
+    safePrint("Check auth");
+    await _checkAuthState();
+
+    if (_isAuthenticated && _phoneNumber != null) {
+      _subscribeToMessages();
+      safePrint('Subscribed to Message? TRUE');
     }
   }
+
 
   @override
   void dispose() {
@@ -275,11 +274,11 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
 
-  void _showNewPasswordDialog() {
+  Future<void> _showNewPasswordDialog() async{
     final TextEditingController newPasswordController = TextEditingController();
     final TextEditingController confirmPasswordController = TextEditingController();
 
-    showDialog(
+    await showDialog(
       context: context,
       builder: (context) {
         return AlertDialog(
@@ -427,33 +426,10 @@ void _subscribeToMessages() {
       _messageRetentionDays = _prefs.getInt('message_retention_days');
       _registrationSecret = _prefs.getString('registration_secret');
     });
-
-    await _checkPhoneNumber();
-    await _checkRegistrationSecret();
-    await _purgeOldMessages();
-    
-    _phoneNumber = '+1$_phoneNumber';//Format number with +1
     
   }
 
-  // Check and prompt for phone number on first run
-  Future<void> _checkPhoneNumber() async {
-    safePrint('Is phone number already set in preferences?');
-    if (_phoneNumber == null) {
-       WidgetsBinding.instance.addPostFrameCallback((_) {
-        _showPhoneNumberDialog();
-      });
-    }
-  }
-  // Check and prompt for phone secret on first run
-  Future<void> _checkRegistrationSecret() async {
-    safePrint('Is secret already set in preferences?');
-    if (_registrationSecret == null) {
-       WidgetsBinding.instance.addPostFrameCallback((_) {
-        _showRegistrationSecretDialog();
-      });
-    }
-  }
+
 
 // Initialize database and load messages
   Future<void> _initializeDatabase() async {
@@ -552,7 +528,7 @@ Future<void> _showPhoneNumberDialog() async {
     final formKey = GlobalKey<FormState>();
     final controller = TextEditingController();
 
-    showDialog(
+    await showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: Text('Update Phone Number',
@@ -606,7 +582,7 @@ Future<void> _showRegistrationSecretDialog() async {
     final formKey = GlobalKey<FormState>();
     final controller = TextEditingController();
 
-    showDialog(
+    await showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: Text('Enter Message Registration Secret',
