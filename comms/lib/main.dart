@@ -430,7 +430,6 @@ void _subscribeToMessages() {
 
     await _checkPhoneNumber();
     await _checkRegistrationSecret();
-    await _checkRegistrationSecret();    
     await _purgeOldMessages();
     
     _phoneNumber = '+1$_phoneNumber';//Format number with +1
