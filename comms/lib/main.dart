@@ -307,9 +307,10 @@ class Message {
     );
   }
 }
-
+/////////////////////////////////////////////////////////////////////////////////////
 // Enum for menu options
-enum MenuOption { viewSettings, updatePhone, messageRetention, purgeOldMessages }
+////////////////////////////////////////////////////////////////////////////////////
+enum MenuOption { viewSettings, updatePhone, messageRetention, purgeOldMessages, updateSecret }
 
 class MyHomePage extends StatefulWidget {
   const MyHomePage({super.key, required this.title});
@@ -340,9 +341,26 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   bool callcheckAuthState = false;
   late FlutterLocalNotificationsPlugin _notificationsPlugin;
 
+//////////////////////////////////////////////////////////////////////////////////////////////////
+///Update Phone and Secret
+Future<void> _loginFailedPrompt() async {
+
+    Completer<void> promptsCompleter = Completer<void>();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+        await _showLocalNotification("Login Issue","Validate Credentials"); //show phone number
+        await _showPhoneNumberDialog(); //prompt to update secret
+        await _showRegistrationSecretDialog();
+        if (_phoneNumber != null) _phoneNumber = '+1$_phoneNumber';
+      promptsCompleter.complete();
+      safePrint("PromptCompleted!");
+    });
+    await promptsCompleter.future;
+  
+}  
+
 // SHOW MESSAGE NOTIFICATIONS ////////////////////////////////////////////////////////////////////////
 
-  void _showLocalNotification(String title, String content) async {
+  Future<void> _showLocalNotification(String title, String content) async {
     const androidDetails = AndroidNotificationDetails(
       'channel_id', 'Channel Name',
       channelDescription: 'Channel Description',
@@ -499,17 +517,22 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
 
       } else if (result.nextStep.signInStep == AuthSignInStep.confirmSignInWithNewPassword) {
         safePrint('Temporary password detected - prompting for new password');
-        _showNewPasswordDialog();  // Show dialog to set new password
+        _showRegistrationSecretDialog();
+        //_showNewPasswordDialog();  // Show dialog to set new password
       } else {
         safePrint('Sign in failed! Next step: ${result.nextStep.signInStep}');
+        //await _loginFailedPrompt();
+        await _showLocalNotification("Login Issue","Validate Credentials and restart the app."); 
       }
     } catch (e) {
-      safePrint('Sign in failed: $e');
+      safePrint('Sign in failed (Error Catch): $e');
+      //await _loginFailedPrompt();
+      await _showLocalNotification("Login Issue","Validate Credentials and restart the app."); 
     }
   }
 
 /////////////////////////////////////////////////////////////////////////////////////////////
-  Future<void> _showNewPasswordDialog() async{
+/*   Future<void> _showNewPasswordDialog() async{
     final TextEditingController newPasswordController = TextEditingController();
     final TextEditingController confirmPasswordController = TextEditingController();
 
@@ -568,10 +591,10 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
         );
       },
     );
-  }
+  } */
 
 /////////////////////////////////////////////////////////////////////////////////////////////
-Future<void> _confirmNewPassword(String newPassword) async {
+/* Future<void> _confirmNewPassword(String newPassword) async {
   try {
     final confirmResult = await Amplify.Auth.confirmSignIn(
       confirmationValue: newPassword,
@@ -588,7 +611,7 @@ Future<void> _confirmNewPassword(String newPassword) async {
     } catch (e) {
       safePrint('Confirm sign-in error: $e');
     }
-  }
+  } */
 
 //////////////////////////////////////////////////////////////////////////////////////////
 StreamSubscription<GraphQLResponse<Message>>? subscription;
@@ -642,9 +665,9 @@ void _subscribeToMessages() {
           //newMessage should be a Json string and will need to be parse and setup to add new message
           //_addMessage(theMessage);
           _loadMessages();
-          if (!_messageDialogActive) {
+/*           if (!_messageDialogActive) {
             _showLocalNotification(theMessage.title, theMessage.content);
-            }
+            } */
         }
       },
       onError: (Object error) {
@@ -755,7 +778,7 @@ void _subscribeToMessages() {
   }
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Add a new message to the database and update the UI
-Future<void> _addMessage(Message message) async {
+/* Future<void> _addMessage(Message message) async {
   safePrint('Adding Messages to local database');
  
   if (_database != null) {
@@ -763,7 +786,7 @@ Future<void> _addMessage(Message message) async {
     await _loadMessages();
     
   }
-}
+} */
 //////////////////////////////////////////////////////////////////////////////////////////////////
 // Function to show phone number input dialog
 Future<void> _showPhoneNumberDialog() async {
@@ -983,9 +1006,11 @@ Future<void> _showRegistrationSecretDialog() async {
                 case MenuOption.messageRetention:
                   _showMessageRetentionDialog();
                 case MenuOption.viewSettings:
-                _showSettingsDialog();
+                  _showSettingsDialog();
                 case MenuOption.purgeOldMessages:
-                await _purgeOldMessages(); // Trigger purge
+                  await _purgeOldMessages(); // Trigger purge
+                case MenuOption.updateSecret:
+                  await _showRegistrationSecretDialog();
               }
             },
             itemBuilder: (context) => [
@@ -1003,6 +1028,10 @@ Future<void> _showRegistrationSecretDialog() async {
               const PopupMenuItem(
                 value: MenuOption.purgeOldMessages,
                 child: Text('Purge Old Messages'),
+              ),
+              const PopupMenuItem(
+                value: MenuOption.updateSecret,
+                child: Text('Update Secret'),
               ),
             ],
           ),
