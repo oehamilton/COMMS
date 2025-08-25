@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:ui';
 import 'package:intl/intl.dart'; 
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite/sqflite.dart';
@@ -9,9 +10,13 @@ import 'package:amplify_api/amplify_api.dart';
 import 'package:graphql_flutter/graphql_flutter.dart';
 import 'dart:async';
 import 'dart:convert';
-import 'amplify_outputs.dart'; // Generated from sandbox
+import 'amplify_outputs.dart'; // Generated from Environment Build
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter_background_service/flutter_background_service.dart';
+import 'package:flutter_background_service_android/flutter_background_service_android.dart';
+//import 'package:flutter/plugins.dart' show DartPluginRegistrant;
 
+bool isSubscriptionActive = false;
 void main() async {
   try {
       WidgetsFlutterBinding.ensureInitialized();
@@ -21,6 +26,221 @@ void main() async {
            runApp(Text("Error configuring Amplify: ${e.message}"));
           }
 
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////
+Future<void> initializeBackgroundService() async {
+  final service = FlutterBackgroundService();
+
+  const AndroidNotificationChannel channel = AndroidNotificationChannel(
+    'foreground_channel',
+    'Background Subscription Service',
+    description: 'Keeps subscriptions active in the background',
+    importance: Importance.low,
+  );
+  final FlutterLocalNotificationsPlugin notificationsPlugin = FlutterLocalNotificationsPlugin();
+  await notificationsPlugin.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()?.createNotificationChannel(channel);
+
+  await service.configure(
+    androidConfiguration: AndroidConfiguration(
+      onStart: onStart,
+      autoStart: true,
+      isForegroundMode: true,
+      notificationChannelId: 'foreground_channel',
+      initialNotificationTitle: 'COMMS DASHBOARD Running',
+      initialNotificationContent: 'Listening for messages...',
+      foregroundServiceNotificationId: 888,
+      foregroundServiceTypes: const [AndroidForegroundType.dataSync],  // Aligns with manifest
+    ),
+    iosConfiguration: IosConfiguration(),
+  );
+
+  await service.startService();
+  safePrint('Background service started');
+}
+
+// This runs in the background isolate
+//////////////////////////////////////////////////////////////////////
+@pragma('vm:entry-point')
+Future<void> onStart(ServiceInstance service) async {
+  DartPluginRegistrant.ensureInitialized();  // Initialize plugins in isolate
+
+  // Re-initialize Amplify
+  await _configureAmplify();
+
+  // Load preferences (SharedPreferences works in isolates)
+  final prefs = await SharedPreferences.getInstance();
+  String? phoneNumber = prefs.getString('phone_number');
+  if (phoneNumber != null) {
+    phoneNumber = '+1$phoneNumber';  // Format if needed
+  }
+  final registrationSecret = prefs.getString('registration_secret');
+
+  // Authentication logic (adapted from _checkAuthState and _signInWithPhone)
+  bool isAuthenticated = false;
+  try {
+    final session = await Amplify.Auth.fetchAuthSession() as CognitoAuthSession;
+    if (session.isSignedIn) {
+      isAuthenticated = true;
+      safePrint('Background: Already signed in');
+    } else {
+      safePrint('Background: Not signed in, attempting sign-in');
+      if (phoneNumber != null && registrationSecret != null) {
+        final result = await Amplify.Auth.signIn(
+          username: phoneNumber,
+          password: registrationSecret,
+        );
+        if (result.isSignedIn) {
+          isAuthenticated = true;
+          safePrint('Background: Authenticated');
+        } else {
+          safePrint('Background: Sign-in failed: ${result.nextStep.signInStep}');
+        }
+      }
+    }
+  } catch (e) {
+    safePrint('Background: Auth failed: $e');
+  }
+
+  // Initialize notifications in isolate
+  final notificationsPlugin = FlutterLocalNotificationsPlugin();
+  const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
+  const initSettings = InitializationSettings(android: androidInit);
+  await notificationsPlugin.initialize(initSettings);
+
+  // Initialize database in isolate (for persisting messages)
+  Database? database;
+  try {
+    database = await openDatabase(
+      path.join(await getDatabasesPath(), 'comms_database.db'),
+      onCreate: (db, version) {
+        return db.execute(
+          'CREATE TABLE messages(id INTEGER PRIMARY KEY, sourceName TEXT, title TEXT, content TEXT, timestamp TEXT, isViewed INTEGER)',
+        );
+      },
+      version: 1,
+    );
+  } catch (e) {
+    safePrint('Background: DB init failed: $e');
+  }
+
+  StreamSubscription? subscription;
+////////////////////////////////////////////////////////////////////////////////////////////////////
+  // Subscription logic (adapted from _subscribeToMessages)
+  void subscribeToMessages() {
+    if (phoneNumber != null) {
+      const String subscriptionDoc = r'''
+        subscription OnCreateMessage($phoneNumber: String!) {
+          onCreateMessage(filter: {phoneNumber: {eq: $phoneNumber}}) {
+            id
+            phoneNumber
+            sourceName
+            title
+            content
+            timestamp
+            isViewed
+          }
+        }
+      ''';
+
+      final subscriptionRequest = GraphQLRequest<String>(
+        document: subscriptionDoc,
+        variables: {'phoneNumber': phoneNumber},
+        decodePath: 'onCreateMessage',
+      );
+
+      final operation = Amplify.API.subscribe(
+        subscriptionRequest,
+        onEstablished: () {
+          safePrint('Background: Subscription established for $phoneNumber');
+          isSubscriptionActive = true;
+        },
+      );
+
+      subscription = operation.listen(
+        (event) {
+          if (event.data != null) {
+            final jsonMap = json.decode(event.data!) as Map<String, dynamic>;
+            final inner = jsonMap['onCreateMessage'] as Map<String, dynamic>;
+            final theMessage = Message(
+              sourceName: inner['sourceName'] as String,
+              title: inner['title'] as String,
+              content: inner['content'] as String,
+              timestamp: DateTime.parse(inner['timestamp'] as String),
+              isViewed: inner['isViewed'] as bool,
+            );
+
+            // Show notification
+            notificationsPlugin.show(
+              0,
+              theMessage.title,
+              theMessage.content,
+              const NotificationDetails(
+                android: AndroidNotificationDetails(
+                  'channel_id',
+                  'Channel Name',
+                  channelDescription: 'Channel Description',
+                  importance: Importance.max,
+                  priority: Priority.high,
+                ),
+              ),
+            );
+
+            // Persist to DB if initialized
+            if (database != null) {
+            try {
+              database.insert('messages', theMessage.toMap());
+              safePrint('Background: Message persisted');
+            } catch (e) {
+              safePrint('Background: Message insert failed: $e');
+            }
+          }
+          }
+        },
+        onError: (error) {
+          safePrint('Background: Subscription error: $error');
+          isSubscriptionActive = false;  // Reset flag on error
+          subscription?.cancel();
+          subscription = null;
+        },
+        onDone: () {
+          safePrint('Background: Subscription completed');
+          isSubscriptionActive = false;
+          subscription = null;
+        },
+      );
+      safePrint('Background: Subscribed to messages');
+    }
+  }
+
+  if (isAuthenticated && phoneNumber != null) {
+    subscribeToMessages();
+  }
+
+  // Lifecycle handling
+  if (service is AndroidServiceInstance) {
+    service.on('setAsForeground').listen((event) {
+      service.setAsForegroundService();
+    });
+    service.on('setAsBackground').listen((event) {
+      service.setAsBackgroundService();
+    
+    });
+  }
+
+  // Periodic reconnection (every 30 seconds)
+  Timer.periodic(const Duration(seconds: 30), (timer) async {
+    if (!isSubscriptionActive) {
+      safePrint('Background: Subscription inactive, reconnecting');
+      subscription?.cancel();
+      subscription = null;
+      if (isAuthenticated) {
+        subscribeToMessages();
+      } else {
+        // Re-auth if needed (add retry auth logic here if session expires)
+      }
+    }
+  });
 }
 
 Future<void> _configureAmplify() async {
@@ -113,6 +333,7 @@ class _MyHomePageState extends State<MyHomePage> {
   late GraphQLClient _graphqlClient;
   StreamSubscription? _subscription;
   bool _messageDialogActive = false;
+  
   bool phoneNumberNull = true;
   bool subscribedToMessages = false;
   bool callcheckAuthState = false;
@@ -209,8 +430,13 @@ class _MyHomePageState extends State<MyHomePage> {
       _subscribeToMessages();
       safePrint('Subscribed to Message? TRUE');
     }
+    safePrint('Initialize Background');
+    await initializeBackgroundService();
+
   }
 
+
+/////////////////////////////////////////////////////////////////////////////////////////////
 
   @override
   void dispose() {
@@ -218,7 +444,7 @@ class _MyHomePageState extends State<MyHomePage> {
     super.dispose();
   }
 
-
+/////////////////////////////////////////////////////////////////////////////////////////////
   Future<void> _checkAuthState() async {
     try {
       //final session = await Amplify.Auth.fetchAuthSession();
@@ -242,7 +468,7 @@ class _MyHomePageState extends State<MyHomePage> {
       await _signInWithPhone();
     }
   }
-
+/////////////////////////////////////////////////////////////////////////////////////////////
   Future<void> _signInWithPhone() async {
     try {
       String formattedPhone = '$_phoneNumber';
@@ -273,7 +499,7 @@ class _MyHomePageState extends State<MyHomePage> {
     }
   }
 
-
+/////////////////////////////////////////////////////////////////////////////////////////////
   Future<void> _showNewPasswordDialog() async{
     final TextEditingController newPasswordController = TextEditingController();
     final TextEditingController confirmPasswordController = TextEditingController();
@@ -335,6 +561,7 @@ class _MyHomePageState extends State<MyHomePage> {
     );
   }
 
+/////////////////////////////////////////////////////////////////////////////////////////////
 Future<void> _confirmNewPassword(String newPassword) async {
   try {
     final confirmResult = await Amplify.Auth.confirmSignIn(
@@ -354,6 +581,7 @@ Future<void> _confirmNewPassword(String newPassword) async {
     }
   }
 
+//////////////////////////////////////////////////////////////////////////////////////////
 StreamSubscription<GraphQLResponse<Message>>? subscription;
 
 void _subscribeToMessages() {
@@ -382,7 +610,8 @@ void _subscribeToMessages() {
       subscriptionRequest,
       onEstablished: () => {
         safePrint('Subscription established for phone: $_phoneNumber'), 
-        subscribedToMessages = true},
+        subscribedToMessages = true,
+        isSubscriptionActive = true},
     );
 
     _subscription = operation.listen(
@@ -410,6 +639,9 @@ void _subscribeToMessages() {
       },
       onError: (Object error) {
         safePrint('Subscription error: $error');
+        isSubscriptionActive = false;  // Reset flag on error
+        subscription?.cancel();
+        subscription = null;
       },
     );
     subscribedToMessages = true;
@@ -430,7 +662,7 @@ void _subscribeToMessages() {
   }
 
 
-
+////////////////////////////////////////////////////////////////////////////////////////////////////
 // Initialize database and load messages
   Future<void> _initializeDatabase() async {
     safePrint('Initializing Local Database');
@@ -489,7 +721,7 @@ void _subscribeToMessages() {
     );
     _loadMessages(); // Load messages into _messages list
   }
-
+////////////////////////////////////////////////////////////////////////////////////////////////////
 // Load messages from database
   Future<void> _loadMessages() async {
     safePrint('Loading Local Messages');
@@ -498,7 +730,7 @@ void _subscribeToMessages() {
       _messages = maps.map((map) => Message.fromMap(map)).toList();
     });
   }
-
+////////////////////////////////////////////////////////////////////////////////////////////////////
   // Function to purge old messages
   Future<void> _purgeOldMessages() async {
       if (_messageRetentionDays != null && _database != null) {
@@ -511,7 +743,7 @@ void _subscribeToMessages() {
         _loadMessages(); // Refresh the message list after purge
       }
   }
-
+////////////////////////////////////////////////////////////////////////////////////////////////////
 // Add a new message to the database and update the UI
 Future<void> _addMessage(Message message) async {
   safePrint('Adding Messages to local database');
@@ -683,7 +915,7 @@ Future<void> _showRegistrationSecretDialog() async {
       ),
     );
   }
-
+////////////////////////////////////////////////////////////////////////////////////////////////////
  // Function to show settings dialog
  void _showSettingsDialog() {
     showDialog(
@@ -714,7 +946,7 @@ Future<void> _showRegistrationSecretDialog() async {
       ),
     );
   }
-
+////////////////////////////////////////////////////////////////////////////////////////////////////
     // Helper method to get the database id for a message
   Future<int> _getMessageId(Message message) async {
       final List<Map<String, dynamic>> result = await _database!.query(
@@ -725,7 +957,7 @@ Future<void> _showRegistrationSecretDialog() async {
       );
       return result.isNotEmpty ? result.first['id'] as int : -1; // -1 if not found
   }
-
+////////////////////////////////////////////////////////////////////////////////////////////////////
   @override
   Widget build(BuildContext context) {
     return Scaffold(
