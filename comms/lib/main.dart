@@ -191,6 +191,7 @@ Future<void> onStart(ServiceInstance service) async {
             try {
               database.insert('messages', theMessage.toMap());
               safePrint('Background: Message persisted');
+              
             } catch (e) {
               safePrint('Background: Message insert failed: $e');
             }
@@ -319,7 +320,7 @@ class MyHomePage extends StatefulWidget {
   State<MyHomePage> createState() => _MyHomePageState();
 }
 
-class _MyHomePageState extends State<MyHomePage> {
+class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   Database? _database;
   List<Message> _messages = [];
   Message? _selectedMessage;
@@ -391,6 +392,7 @@ class _MyHomePageState extends State<MyHomePage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     safePrint('initState');
     final httpLink = HttpLink('https://pudgdftpfngldpdmnoyz637bgq.appsync-api.us-west-2.amazonaws.com/graphql'); 
     _graphqlClient = GraphQLClient(
@@ -440,9 +442,19 @@ class _MyHomePageState extends State<MyHomePage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _subscription?.cancel();
     super.dispose();
   }
+
+  @override
+    void didChangeAppLifecycleState(AppLifecycleState state) {
+      super.didChangeAppLifecycleState(state);
+      if (state == AppLifecycleState.resumed) {
+        _loadMessages();  // Refresh messages when app resumes
+      }
+    }
+
 
 /////////////////////////////////////////////////////////////////////////////////////////////
   Future<void> _checkAuthState() async {
@@ -484,10 +496,7 @@ class _MyHomePageState extends State<MyHomePage> {
           _isAuthenticated = true;
           safePrint('Authenticated!');
         });
-/*         if (_phoneNumber != null) {
-          _subscribeToMessages();
-          safePrint('Subscribed to Phone: $formattedPhone');
-        } */
+
       } else if (result.nextStep.signInStep == AuthSignInStep.confirmSignInWithNewPassword) {
         safePrint('Temporary password detected - prompting for new password');
         _showNewPasswordDialog();  // Show dialog to set new password
@@ -631,7 +640,8 @@ void _subscribeToMessages() {
               
           safePrint(theMessage); //Coding & Debuging Step
           //newMessage should be a Json string and will need to be parse and setup to add new message
-          _addMessage(theMessage);
+          //_addMessage(theMessage);
+          _loadMessages();
           if (!_messageDialogActive) {
             _showLocalNotification(theMessage.title, theMessage.content);
             }
@@ -749,7 +759,7 @@ Future<void> _addMessage(Message message) async {
   safePrint('Adding Messages to local database');
  
   if (_database != null) {
-    await _database!.insert('messages', message.toMap());
+    //await _database!.insert('messages', message.toMap());
     await _loadMessages();
     
   }
