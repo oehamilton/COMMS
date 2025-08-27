@@ -116,7 +116,7 @@ Future<void> onStart(ServiceInstance service) async {
       path.join(await getDatabasesPath(), 'comms_database.db'),
       onCreate: (db, version) {
         return db.execute(
-          'CREATE TABLE messages(id INTEGER PRIMARY KEY, sourceName TEXT, title TEXT, content TEXT, timestamp TEXT, isViewed INTEGER)',
+          'CREATE TABLE messages(id INTEGER PRIMARY KEY, dynamo_id TEXT UNIQUE, sourceName TEXT, title TEXT, content TEXT, timestamp TEXT, isViewed INTEGER)',
         );
       },
       version: 1,
@@ -164,6 +164,7 @@ Future<void> onStart(ServiceInstance service) async {
             final jsonMap = json.decode(event.data!) as Map<String, dynamic>;
             final inner = jsonMap['onCreateMessage'] as Map<String, dynamic>;
             final theMessage = Message(
+              id: inner['id'] as String,
               sourceName: inner['sourceName'] as String,
               title: inner['title'] as String,
               content: inner['content'] as String,
@@ -193,7 +194,7 @@ Future<void> onStart(ServiceInstance service) async {
               database.insert('messages', theMessage.toMap());
               //Update DynamoDB message isViewed to true
               safePrint('Background: Message persisted');
-              
+              _updateMessageInDynamoDB(theMessage.id);
             } catch (e) {
               safePrint('Background: Message insert failed: $e');
             }
@@ -246,6 +247,34 @@ Future<void> onStart(ServiceInstance service) async {
   });
 }
 
+  Future<void> _updateMessageInDynamoDB(String id) async {
+    const String updateDoc = r'''
+      mutation UpdateMessage($id: ID!, $isViewed: Boolean!) {
+        updateMessage(input: {id: $id, isViewed: $isViewed}) {
+          id
+          isViewed
+        }
+      }
+    ''';
+
+    final updateRequest = GraphQLRequest<String>(
+      document: updateDoc,
+      variables: {'id': id, 'isViewed': true},
+    );
+
+    try {
+      final response = await Amplify.API.mutate(request: updateRequest).response;
+      if (response.errors.isNotEmpty) {
+        safePrint('DynamoDB update error: ${response.errors}');
+      } else {
+        safePrint('DynamoDB updated isViewed to true for id: $id');
+      }
+    } catch (e) {
+      safePrint('DynamoDB update failed: $e');
+    }
+  }
+
+
 Future<void> _configureAmplify() async {
   try {
     await Amplify.addPlugins([AmplifyAuthCognito(), AmplifyAPI()]);
@@ -273,6 +302,7 @@ class MyApp extends StatelessWidget {
 
 // Message model with DateTime
 class Message {
+  final String id;
   final String sourceName;
   final String title;
   final String content;
@@ -280,6 +310,7 @@ class Message {
   bool isViewed;
 
   Message({
+    required this.id,
     required this.sourceName,
     required this.title,
     required this.content,
@@ -290,6 +321,7 @@ class Message {
 // Convert Message to Map for database
   Map<String, dynamic> toMap() {
     return {
+      'dynamo_id': id,
       'sourceName': sourceName,
       'title': title,
       'content': content,
@@ -301,6 +333,7 @@ class Message {
   // Create Message from Map
   static Message fromMap(Map<String, dynamic> map) {
     return Message(
+      id: map['dynamo_id'] as String,
       sourceName: map['sourceName'],
       title: map['title'],
       content: map['content'],
@@ -664,6 +697,7 @@ void _subscribeToMessages() {
           final jsonMap = json.decode(newMessage) as Map<String, dynamic>;
           final inner = jsonMap['onCreateMessage'] as Map<String, dynamic>;
           final theMessage = Message(
+            id: inner['id'] as String,
             sourceName: inner['sourceName'] as String,
             title: inner['title'] as String,
             content: inner['content'] as String,
@@ -673,11 +707,18 @@ void _subscribeToMessages() {
               
           safePrint(theMessage); //Coding & Debuging Step
           //newMessage should be a Json string and will need to be parse and setup to add new message
-          //_addMessage(theMessage);
+         
+          if (_database != null) {
+            try {
+              _database!.insert('messages', theMessage.toMap(), conflictAlgorithm: ConflictAlgorithm.ignore);
+              safePrint('Foreground: Message persisted');
+              _updateMessageInDynamoDB(theMessage.id);
+            } catch (e) {
+              safePrint('Foreground: Message insert failed: $e');
+            }
+          }
           _loadMessages();
-/*           if (!_messageDialogActive) {
-            _showLocalNotification(theMessage.title, theMessage.content);
-            } */
+
         }
       },
       onError: (Object error) {
@@ -714,11 +755,12 @@ void _subscribeToMessages() {
       version: 1,
       onCreate: (db, version) async {
         await db.execute(
-          'CREATE TABLE messages (id INTEGER PRIMARY KEY AUTOINCREMENT, sourceName TEXT, title TEXT, content TEXT, timestamp TEXT, isViewed INTEGER)',
+          'CREATE TABLE messages (id INTEGER PRIMARY KEY AUTOINCREMENT, dynamo_id TEXT UNIQUE, sourceName TEXT, title TEXT, content TEXT, timestamp TEXT, isViewed INTEGER)',
         );
         // Insert initial sample data
         // Insert initial sample data
           await db.insert('messages', {
+            'dynamo_id': 'sample1',
             'sourceName': 'Device 1',
             'title': 'Maintenance Needed',
             'content': 'Endpoint device 1 requires urgent maintenance.',
@@ -726,6 +768,7 @@ void _subscribeToMessages() {
             'isViewed': 0,
           });
           await db.insert('messages', {
+            'dynamo_id': 'sample2',
             'sourceName': 'Device 2',
             'title': 'Low Battery',
             'content': 'Battery level critical on endpoint device 2.',
@@ -733,6 +776,7 @@ void _subscribeToMessages() {
             'isViewed': 1,
           });
           await db.insert('messages', {
+            'dynamo_id': 'sample3',
             'sourceName': 'Device 3',
             'title': 'Connectivity Issue',
             'content': 'Device 3 lost connection at 10:30 AM.',
@@ -740,6 +784,7 @@ void _subscribeToMessages() {
             'isViewed': 0,
           });
           await db.insert('messages', {
+            'dynamo_id': 'sample4',
             'sourceName': 'Device 14',
             'title': 'Maintenance Needed',
             'content': 'Endpoint device 1 requires urgent maintenance.',
@@ -747,6 +792,7 @@ void _subscribeToMessages() {
             'isViewed': 0,
           });
           await db.insert('messages', {
+            'dynamo_id': 'sample5',
             'sourceName': 'Device 3',
             'title': 'Low Battery',
             'content': 'Battery level critical on endpoint device 2.',
@@ -754,6 +800,7 @@ void _subscribeToMessages() {
             'isViewed': 1,
           });
           await db.insert('messages', {
+            'dynamo_id': 'sample6',
             'sourceName': 'Device 1',
             'title': 'Connectivity Issue',
             'content': 'Lost connection at 10:30 AM.',
