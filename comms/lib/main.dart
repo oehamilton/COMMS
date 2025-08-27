@@ -10,6 +10,7 @@ import 'package:amplify_api/amplify_api.dart';
 import 'package:graphql_flutter/graphql_flutter.dart';
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 import 'amplify_outputs.dart'; // Generated from Environment Build
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
@@ -190,6 +191,7 @@ Future<void> onStart(ServiceInstance service) async {
             if (database != null) {
             try {
               database.insert('messages', theMessage.toMap());
+              //Update DynamoDB message isViewed to true
               safePrint('Background: Message persisted');
               
             } catch (e) {
@@ -310,7 +312,9 @@ class Message {
 /////////////////////////////////////////////////////////////////////////////////////
 // Enum for menu options
 ////////////////////////////////////////////////////////////////////////////////////
-enum MenuOption { viewSettings, updatePhone, messageRetention, purgeOldMessages, updateSecret }
+enum MenuOption { viewSettings, updatePhone, messageRetention, purgeOldMessages, updateSecret, registerApplication }
+
+////////////////////////////////////////////////////////////////////////////////////
 
 class MyHomePage extends StatefulWidget {
   const MyHomePage({super.key, required this.title});
@@ -443,8 +447,14 @@ Future<void> _loginFailedPrompt() async {
     await _initializeDatabase();  
     await _purgeOldMessages();
 
-    safePrint("Check auth");
-    await _checkAuthState();
+  // Wait for authentication; password reset may be required.
+    Completer<void> authCompleter = Completer<void>();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      safePrint("Check auth");
+      await _checkAuthState();
+      authCompleter.complete();
+      });
+    await authCompleter.future;
 
     if (_isAuthenticated && _phoneNumber != null) {
       _subscribeToMessages();
@@ -503,7 +513,7 @@ Future<void> _loginFailedPrompt() async {
     try {
       String formattedPhone = '$_phoneNumber';
       safePrint('UnFormatted Phone: $_phoneNumber');
-      safePrint('Formatted Phone: $formattedPhone');
+      safePrint('Secret: $_registrationSecret');
      
       final result = await Amplify.Auth.signIn(
         username: formattedPhone,
@@ -517,22 +527,22 @@ Future<void> _loginFailedPrompt() async {
 
       } else if (result.nextStep.signInStep == AuthSignInStep.confirmSignInWithNewPassword) {
         safePrint('Temporary password detected - prompting for new password');
-        _showRegistrationSecretDialog();
-        //_showNewPasswordDialog();  // Show dialog to set new password
+        //_showRegistrationSecretDialog();
+        await _showNewPasswordDialog();  // Show dialog to set new password
       } else {
         safePrint('Sign in failed! Next step: ${result.nextStep.signInStep}');
         //await _loginFailedPrompt();
-        await _showLocalNotification("Login Issue","Validate Credentials and restart the app."); 
+        //await _showLocalNotification("Login Issue","Validate Credentials and restart the app."); 
       }
     } catch (e) {
       safePrint('Sign in failed (Error Catch): $e');
       //await _loginFailedPrompt();
-      await _showLocalNotification("Login Issue","Validate Credentials and restart the app."); 
+      //await _showLocalNotification("Login Issue","Validate Credentials and restart the app."); 
     }
   }
 
 /////////////////////////////////////////////////////////////////////////////////////////////
-/*   Future<void> _showNewPasswordDialog() async{
+  Future<void> _showNewPasswordDialog() async{
     final TextEditingController newPasswordController = TextEditingController();
     final TextEditingController confirmPasswordController = TextEditingController();
 
@@ -591,10 +601,10 @@ Future<void> _loginFailedPrompt() async {
         );
       },
     );
-  } */
+  } 
 
 /////////////////////////////////////////////////////////////////////////////////////////////
-/* Future<void> _confirmNewPassword(String newPassword) async {
+ Future<void> _confirmNewPassword(String newPassword) async {
   try {
     final confirmResult = await Amplify.Auth.confirmSignIn(
       confirmationValue: newPassword,
@@ -611,7 +621,7 @@ Future<void> _loginFailedPrompt() async {
     } catch (e) {
       safePrint('Confirm sign-in error: $e');
     }
-  } */
+  }
 
 //////////////////////////////////////////////////////////////////////////////////////////
 StreamSubscription<GraphQLResponse<Message>>? subscription;
@@ -894,7 +904,149 @@ Future<void> _showRegistrationSecretDialog() async {
       ),
     );
   }
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+
+// In _MyHomePageState class
+
+// Add this method for registration dialog and sign-up
+Future<void> _registerApplication() async {
+  final formKey = GlobalKey<FormState>();
+  final phoneController = TextEditingController();
+  final emailController = TextEditingController();
+
+  await showDialog(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('Register New User'),
+      content: Form(
+        key: formKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextFormField(
+              controller: phoneController,
+              decoration: const InputDecoration(labelText: 'Phone Number (e.g., +1234567890)'),
+              keyboardType: TextInputType.phone,
+              validator: (value) {
+                if (value == null || value.isEmpty || !value.startsWith('+')) {
+                  return 'Enter a valid phone number starting with +';
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: emailController,
+              decoration: const InputDecoration(labelText: 'Email Address'),
+              keyboardType: TextInputType.emailAddress,
+              validator: (value) {
+                if (value == null || value.isEmpty || !value.contains('@')) {
+                  return 'Enter a valid email address';
+                }
+                return null;
+              },
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        TextButton(
+          onPressed: () async {
+            if (formKey.currentState!.validate()) {
+              try {
+                // Perform sign-up with phone as username and email as attribute
+                final signUpResult = await Amplify.Auth.signUp(
+                  username: phoneController.text,
+                  password: _generateTemporaryPassword(),  // Generate a strong temp password (user will reset later)
+                  options: SignUpOptions(
+                    userAttributes: {
+                      CognitoUserAttributeKey.email: emailController.text,
+                    },
+                  ),
+                );
+
+                if (signUpResult.nextStep.signUpStep == AuthSignUpStep.confirmSignUp) {
+                  // Prompt for verification code sent to phone
+                  await _showConfirmationDialog(phoneController.text);
+                } else {
+                  // Handle other steps if needed
+                  safePrint('Registration complete');
+                }
+              } on AuthException catch (e) {
+                safePrint('Registration failed: ${e.message}');
+                // Show error dialog
+                showDialog(
+                  context: context,
+                  builder: (context) => AlertDialog(
+                    title: const Text('Error'),
+                    content: Text(e.message),
+                    actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK'))],
+                  ),
+                );
+              }
+              Navigator.pop(context);
+            }
+          },
+          child: const Text('Register'),
+        ),
+      ],
+    ),
+  );
+}
+
+// Helper to generate a strong temporary password (user will reset on first login)
+String _generateTemporaryPassword() {
+  // Implement a secure random password generator (e.g., 12+ chars with mix of types)
+  // For example, using dart:math for randomness
+  const chars = 'AaBbCcDdEeFfGgHhIiJjKkLlMmNnOoPpQqRrSsTtUuVvWwXxYyZz1234567890!@#\$%';
+  final random = Random.secure();
+  return List.generate(12, (index) => chars[random.nextInt(chars.length)]).join();
+}
+
+// Dialog for confirmation code
+Future<void> _showConfirmationDialog(String username) async {
+  final codeController = TextEditingController();
+
+  await showDialog(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('Confirm Registration'),
+      content: TextFormField(
+        controller: codeController,
+        decoration: const InputDecoration(labelText: 'Verification Code'),
+        keyboardType: TextInputType.number,
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        TextButton(
+          onPressed: () async {
+            try {
+              await Amplify.Auth.confirmSignUp(
+                username: username,
+                confirmationCode: codeController.text,
+              );
+              safePrint('User confirmed');
+              // Optionally, sign in the user or navigate
+            } on AuthException catch (e) {
+              safePrint('Confirmation failed: ${e.message}');
+              // Show error
+            }
+            Navigator.pop(context);
+          },
+          child: const Text('Confirm'),
+        ),
+      ],
+    ),
+  );
+}
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
  // Function to show message retention input dialog
@@ -1011,6 +1163,8 @@ Future<void> _showRegistrationSecretDialog() async {
                   await _purgeOldMessages(); // Trigger purge
                 case MenuOption.updateSecret:
                   await _showRegistrationSecretDialog();
+                case MenuOption.registerApplication:
+                  await _registerApplication();
               }
             },
             itemBuilder: (context) => [
@@ -1033,6 +1187,11 @@ Future<void> _showRegistrationSecretDialog() async {
                 value: MenuOption.updateSecret,
                 child: Text('Update Secret'),
               ),
+              const PopupMenuItem(
+                value: MenuOption.registerApplication,
+                child: Text('Register App')
+              ),
+              
             ],
           ),
         ],
