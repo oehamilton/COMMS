@@ -14,7 +14,7 @@ import 'dart:math';
 import 'amplify_outputs.dart'; // Generated from Environment Build
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
-import 'package:flutter_background_service_android/flutter_background_service_android.dart';
+//import 'package:flutter_background_service_android/flutter_background_service_android.dart';
 //import 'package:flutter/plugins.dart' show DartPluginRegistrant;
 
 bool isSubscriptionActive = false;
@@ -345,7 +345,7 @@ class Message {
 /////////////////////////////////////////////////////////////////////////////////////
 // Enum for menu options
 ////////////////////////////////////////////////////////////////////////////////////
-enum MenuOption { viewSettings, updatePhone, messageRetention, purgeOldMessages, updateSecret, registerApplication }
+enum MenuOption { viewSettings, updatePhone, messageRetention, purgeOldMessages, updateSecret, registerApplication, getMissedMessages }
 
 ////////////////////////////////////////////////////////////////////////////////////
 
@@ -490,6 +490,7 @@ Future<void> _loginFailedPrompt() async {
     await authCompleter.future;
 
     if (_isAuthenticated && _phoneNumber != null) {
+      await _fetchMissedMessages();
       _subscribeToMessages();
       safePrint('Subscribed to Message? TRUE');
     }
@@ -833,6 +834,69 @@ void _subscribeToMessages() {
         _loadMessages(); // Refresh the message list after purge
       }
   }
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Fetch missed messages from DynamoDB
+  Future<void> _fetchMissedMessages() async {
+    if (_database == null) return;
+
+    const String queryDoc = r'''
+      query ListMissedMessages($phoneNumber: String!) {
+        listMessages(filter: {phoneNumber: {eq: $phoneNumber}, isViewed: {eq: false}}) {
+          items {
+            id
+            phoneNumber
+            sourceName
+            title
+            content
+            timestamp
+            isViewed
+          }
+        }
+      }
+    ''';
+
+    final request = GraphQLRequest<String>(
+      document: queryDoc,
+      variables: {'phoneNumber': _phoneNumber},
+    );
+
+    try {
+      final response = await Amplify.API.query(request: request).response;
+      if (response.errors.isNotEmpty) {
+        safePrint('Query errors: ${response.errors}');
+        return;
+      }
+      if (response.data == null) {
+        safePrint('No data');
+        return;
+      }
+      final data = json.decode(response.data!) as Map<String, dynamic>;
+      final items = data['listMessages']?['items'] as List<dynamic>? ?? [];
+      for (var item in items) {
+        final inner = item as Map<String, dynamic>;
+        final message = Message(
+          id: inner['id'] as String,
+          sourceName: inner['sourceName'] as String,
+          title: inner['title'] as String,
+          content: inner['content'] as String,
+          timestamp: DateTime.parse(inner['timestamp'] as String),
+          isViewed: inner['isViewed'] as bool,
+        );
+
+        await _showLocalNotification(message.title, message.content);
+
+        await _database!.insert('messages', message.toMap(), conflictAlgorithm: ConflictAlgorithm.ignore);
+        await _updateMessageInDynamoDB(message.id);
+      }
+      await _loadMessages();
+    } catch (e) {
+      safePrint('Fetch missed failed: $e');
+    }
+  }
+
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Add a new message to the database and update the UI
 /* Future<void> _addMessage(Message message) async {
@@ -1212,6 +1276,8 @@ Future<void> _showConfirmationDialog(String username) async {
                   await _showRegistrationSecretDialog();
                 case MenuOption.registerApplication:
                   await _registerApplication();
+                case MenuOption.getMissedMessages:
+                  await _fetchMissedMessages();
               }
             },
             itemBuilder: (context) => [
@@ -1237,6 +1303,10 @@ Future<void> _showConfirmationDialog(String username) async {
               const PopupMenuItem(
                 value: MenuOption.registerApplication,
                 child: Text('Register App')
+              ),
+              const PopupMenuItem(
+                value: MenuOption.getMissedMessages,
+                child: Text('Retrive Messages')
               ),
               
             ],
