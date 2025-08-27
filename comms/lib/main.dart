@@ -1,3 +1,5 @@
+// ignore_for_file: use_build_context_synchronously
+
 import 'package:flutter/material.dart';
 import 'dart:ui';
 import 'package:intl/intl.dart'; 
@@ -14,8 +16,7 @@ import 'dart:math';
 import 'amplify_outputs.dart'; // Generated from Environment Build
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
-//import 'package:flutter_background_service_android/flutter_background_service_android.dart';
-//import 'package:flutter/plugins.dart' show DartPluginRegistrant;
+
 
 bool isSubscriptionActive = false;
 void main() async {
@@ -369,9 +370,10 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   bool _showUnreadOnly = false;
   bool _isAuthenticated = false;
   late SharedPreferences _prefs;
+  // ignore: unused_field
   late GraphQLClient _graphqlClient;
   StreamSubscription? _subscription;
-  bool _messageDialogActive = false;
+  //bool _messageDialogActive = false;
   
   bool phoneNumberNull = true;
   bool subscribedToMessages = false;
@@ -380,7 +382,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
 
 //////////////////////////////////////////////////////////////////////////////////////////////////
 ///Update Phone and Secret
-Future<void> _loginFailedPrompt() async {
+/* Future<void> _loginFailedPrompt() async {
 
     Completer<void> promptsCompleter = Completer<void>();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
@@ -393,7 +395,7 @@ Future<void> _loginFailedPrompt() async {
     });
     await promptsCompleter.future;
   
-}  
+} */  
 
 // SHOW MESSAGE NOTIFICATIONS ////////////////////////////////////////////////////////////////////////
 
@@ -408,41 +410,7 @@ Future<void> _loginFailedPrompt() async {
     await _notificationsPlugin.show(0, title, content, details);
   }
 
-/*   void _showLocalNotification(String title, String content) {
-  _messageDialogActive = true;
-  safePrint('Notification: $title - $content');
-  showDialog(
-    context: context,
-    builder: (context) => AlertDialog(
-      title: Text('New Message', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontSize: 18, fontWeight: FontWeight.bold),),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Title: $title',
-            style: Theme.of(context).textTheme.bodyMedium,
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Content: $content',
-            style: Theme.of(context).textTheme.bodyMedium,
-          ),
-        ],
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Close'),
-        ),
-      ],
-    ),
-  ).then((_) {
-    setState(() {
-          _messageDialogActive = false;
-          });
-      });
-} */
+
 
   @override
   void initState() {
@@ -566,12 +534,12 @@ Future<void> _loginFailedPrompt() async {
       } else {
         safePrint('Sign in failed! Next step: ${result.nextStep.signInStep}');
         //await _loginFailedPrompt();
-        //await _showLocalNotification("Login Issue","Validate Credentials and restart the app."); 
+        
       }
     } catch (e) {
       safePrint('Sign in failed (Error Catch): $e');
       //await _loginFailedPrompt();
-      //await _showLocalNotification("Login Issue","Validate Credentials and restart the app."); 
+      
     }
   }
 
@@ -759,7 +727,6 @@ void _subscribeToMessages() {
           'CREATE TABLE messages (id INTEGER PRIMARY KEY AUTOINCREMENT, dynamo_id TEXT UNIQUE, sourceName TEXT, title TEXT, content TEXT, timestamp TEXT, isViewed INTEGER)',
         );
         // Insert initial sample data
-        // Insert initial sample data
           await db.insert('messages', {
             'dynamo_id': 'sample1',
             'sourceName': 'Device 1',
@@ -898,16 +865,7 @@ void _subscribeToMessages() {
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-// Add a new message to the database and update the UI
-/* Future<void> _addMessage(Message message) async {
-  safePrint('Adding Messages to local database');
- 
-  if (_database != null) {
-    //await _database!.insert('messages', message.toMap());
-    await _loadMessages();
-    
-  }
-} */
+
 //////////////////////////////////////////////////////////////////////////////////////////////////
 // Function to show phone number input dialog
 Future<void> _showPhoneNumberDialog() async {
@@ -1402,6 +1360,7 @@ Future<void> _showConfirmationDialog(String username) async {
                                       }
                       },
                     selected: _selectedMessage == message,
+                    // ignore: deprecated_member_use
                     selectedTileColor: Theme.of(context).colorScheme.primary.withOpacity(0.1),
                     //selectedTileColor: Theme.of(context).colorScheme.primary
                   );
